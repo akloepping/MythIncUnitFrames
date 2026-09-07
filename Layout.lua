@@ -40,7 +40,7 @@ local function CreateRaidTargetIndicator(self)
 end
 
 local function CreateRoleIndicator(self)
-    local role=self:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",self,"TOPLEFT",3,-3); self.GroupRoleIndicator=role
+    local role=self.Health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",self.Health,"TOPLEFT",3,-3); self.GroupRoleIndicator=role
 end
 
 local function CreatePortrait(self)
