@@ -21,7 +21,7 @@ local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton
-local textureButton, healthColorButton, powerColorButton, fontButton
+local textureButton, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
 local frameTab, auraTab
 local partyLayoutPanel, partyOrientationButton, partyDirectionButton, partySpacingSlider, partyIncludePlayerButton
@@ -239,7 +239,7 @@ local function RefreshFrameControls()
     portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
     roleIconButton:SetShown(selectedType=="player" or selectedType=="party"); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
     textureButton:SetText("Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat")); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
-    powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata"))
+    powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
 end
 
 local function RefreshGroupControls()
@@ -352,12 +352,12 @@ end
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() RestoreFramePreview(); RestoreAuraPreview() end)
+    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
-    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
+    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
+    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
     local prev
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
@@ -366,6 +366,7 @@ local function CreateShell()
             pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
+            if fontMenu then fontMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
             selectedType=unitType; ns.RefreshConfig()
@@ -395,7 +396,15 @@ local function CreateFramesPage()
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); MarkPending("Party player inclusion staged.") end)
     partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); PreviewFrameSliders() end end)
 
-    fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34); fontButton:SetScript("OnClick",function() working.fontFace=Cycle(working.fontFace or "friz",ns.Media.fontOrder); RefreshFrameControls() end)
+    fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
+    fontMenu=CreateFrame("Frame",nil,text,"BackdropTemplate"); fontMenu:SetWidth(190); fontMenu:SetHeight((#ns.Media.fontOrder*24)+8); fontMenu:SetPoint("TOPLEFT",fontButton,"BOTTOMLEFT",0,-2); fontMenu:SetFrameLevel(text:GetFrameLevel()+20)
+    fontMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); fontMenu:SetBackdropColor(0.03,0.035,0.045,0.98); fontMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); fontMenu:Hide()
+    for i,key in ipairs(ns.Media.fontOrder) do
+        local entry=ns.Media.fonts[key]; local choice=MakeButton(fontMenu,entry.name,180,22); choice:SetPoint("TOPLEFT",5,-4-((i-1)*24))
+        local label=choice:GetFontString(); if label then label:SetFont(entry.path,12,"OUTLINE") end
+        choice:SetScript("OnClick",function() working.fontFace=key; fontMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
+    end
+    fontButton:SetScript("OnClick",function() if fontMenu:IsShown() then fontMenu:Hide() else fontMenu:Show() end end)
     fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
     nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
