@@ -162,9 +162,33 @@ local function ApplyRoleIcon(frame,appearance)
     end
 end
 
-local function ApplyFrame(frame,sizeOverride)
-    local unitType=frame.MIUF_UnitType; local size=sizeOverride or ns.GetSize(unitType); local appearance=ns.GetAppearance(unitType)
-    local width,height=size.width,size.height; frame:SetSize(width,height)
+local function BuildFrameState(unitType, overrides)
+    local savedSize = ns.GetSize(unitType) or {}
+    local savedAppearance = ns.GetAppearance(unitType) or {}
+    local state = {
+        size = { width = savedSize.width, height = savedSize.height },
+        powerPercent = ns.GetPowerPercent(unitType),
+        appearance = {},
+    }
+    for key, value in pairs(savedAppearance) do state.appearance[key] = value end
+
+    if overrides then
+        if overrides.size then
+            if overrides.size.width ~= nil then state.size.width = overrides.size.width end
+            if overrides.size.height ~= nil then state.size.height = overrides.size.height end
+        end
+        if overrides.powerPercent ~= nil then state.powerPercent = overrides.powerPercent end
+        if overrides.appearance then
+            for key, value in pairs(overrides.appearance) do state.appearance[key] = value end
+        end
+    end
+    return state
+end
+
+local function ApplyFrameState(frame, state)
+    local appearance = state.appearance
+    local width, height = state.size.width, state.size.height
+    frame:SetSize(width,height)
     local texture=ns.GetTexturePath(appearance.texture)
     frame.Health:SetStatusBarTexture(texture); frame.Power:SetStatusBarTexture(texture); if frame.Castbar then frame.Castbar:SetStatusBarTexture(texture) end
     frame.Background:SetColorTexture(0.03,0.03,0.03,appearance.backgroundOpacity/100); frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,appearance.borderOpacity/100)
@@ -177,7 +201,7 @@ local function ApplyFrame(frame,sizeOverride)
     else frame.Portrait:Hide() end
     local leftInset,rightInset=2,2
     if appearance.showPortrait then if appearance.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
-    local powerHeight=math.max(8,math.floor(height*(ns.GetPowerPercent(unitType)/100)))
+    local powerHeight=math.max(8,math.floor(height*(state.powerPercent/100)))
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
 
@@ -201,16 +225,21 @@ local function ApplyFrame(frame,sizeOverride)
 end
 
 function ns.ApplyFrameType(unitType)
-    for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrame(frame) end end
+    local state = BuildFrameState(unitType)
+    for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
     if not InCombatLockdown() and ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
 ns.ApplySize=ns.ApplyFrameType
 
-function ns.PreviewFrameSize(unitType,width,height)
+function ns.PreviewFrameType(unitType, overrides)
     if InCombatLockdown() then return end
-    local preview={width=width,height=height}
-    for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrame(frame,preview) end end
+    local state = BuildFrameState(unitType, overrides)
+    for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
     if ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
+end
+
+function ns.PreviewFrameSize(unitType,width,height)
+    ns.PreviewFrameType(unitType,{size={width=width,height=height}})
 end
 
 function ns.IsUnitTypePreviewEnabled(unitType) return previewEnabled[unitType] ~= false end
