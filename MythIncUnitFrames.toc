@@ -2,13 +2,14 @@
 ## Title: MythInc Unit Frames
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
-## Version: 0.9.0
+## Version: 0.10.0-alpha
 ## RequiredDeps: oUF
 ## SavedVariables: MythIncUnitFramesDB
 ## X-oUF: MythIncUnitFrames
 
 Core.lua
 Media.lua
+Native.lua
 Auras.lua
 Layout.lua
 Groups.lua
