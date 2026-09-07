@@ -21,7 +21,7 @@ local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton
-local textureButton, healthColorButton, powerColorButton, fontButton, fontMenu
+local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
 local frameTab, auraTab
 local partyLayoutPanel, partyOrientationButton, partyDirectionButton, partySpacingSlider, partyIncludePlayerButton
@@ -93,6 +93,7 @@ local function PreviewFrameSliders()
     local borderOpacity=Round(borderSlider:GetValue())
     local nameX,nameY=Round(nameXSlider:GetValue()),Round(nameYSlider:GetValue())
     local healthX,healthY=Round(healthXSlider:GetValue()),Round(healthYSlider:GetValue())
+    local barTexture=ns.GetTexturePath(working.texture)
 
     working.fontSize=fontSize; working.portraitPercent=portraitPercent
     working.backgroundOpacity=backgroundOpacity; working.borderOpacity=borderOpacity
@@ -117,10 +118,13 @@ local function PreviewFrameSliders()
             local powerHeight=math.max(8,math.floor(height*(powerPercent/100)))
             if frame.Health then
                 frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
+                frame.Health:SetStatusBarTexture(barTexture)
             end
             if frame.Power then
                 frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
+                frame.Power:SetStatusBarTexture(barTexture)
             end
+            if frame.Castbar then frame.Castbar:SetStatusBarTexture(barTexture) end
             if frame.NameText and frame.Health then
                 frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
                 frame.NameText:SetFont(ns.GetFontPath(working.fontFace),fontSize,"OUTLINE")
@@ -238,7 +242,7 @@ local function RefreshFrameControls()
     nameButton:SetText("Name: "..(working.showName and "On" or "Off")); healthTextButton:SetText("Health %: "..(working.showHealthText and "On" or "Off"))
     portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
     roleIconButton:SetShown(selectedType=="player" or selectedType=="party"); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
-    textureButton:SetText("Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat")); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
+    textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
 end
 
@@ -352,12 +356,12 @@ end
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
+    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
-    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
+    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
+    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
     local prev
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
@@ -366,7 +370,7 @@ local function CreateShell()
             pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
-            if fontMenu then fontMenu:Hide() end
+            if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
             selectedType=unitType; ns.RefreshConfig()
@@ -404,7 +408,7 @@ local function CreateFramesPage()
         local label=choice:GetFontString(); if label then label:SetFont(entry.path,12,"OUTLINE") end
         choice:SetScript("OnClick",function() working.fontFace=key; fontMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
     end
-    fontButton:SetScript("OnClick",function() if fontMenu:IsShown() then fontMenu:Hide() else fontMenu:Show() end end)
+    fontButton:SetScript("OnClick",function() if textureMenu then textureMenu:Hide() end; if fontMenu:IsShown() then fontMenu:Hide() else fontMenu:Show() end end)
     fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
     nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
@@ -413,7 +417,16 @@ local function CreateFramesPage()
     healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
-    textureButton=MakeButton(appearance,"Texture",145,26); textureButton:SetPoint("TOPLEFT",15,-34); textureButton:SetScript("OnClick",function() working.texture=Cycle(working.texture,ns.Media.textureOrder); RefreshFrameControls() end)
+    textureButton=MakeButton(appearance,"Bar Texture",155,26); textureButton:SetPoint("TOPLEFT",15,-34)
+    textureMenu=CreateFrame("Frame",nil,appearance,"BackdropTemplate"); textureMenu:SetWidth(155); textureMenu:SetHeight((#ns.Media.textureOrder*28)+8); textureMenu:SetPoint("TOPLEFT",textureButton,"BOTTOMLEFT",0,-2); textureMenu:SetFrameLevel(appearance:GetFrameLevel()+20)
+    textureMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); textureMenu:SetBackdropColor(0.03,0.035,0.045,0.98); textureMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); textureMenu:Hide()
+    for i,key in ipairs(ns.Media.textureOrder) do
+        local entry=ns.Media.textures[key]; local choice=MakeButton(textureMenu,entry.name,145,26); choice:SetPoint("TOPLEFT",5,-4-((i-1)*28))
+        local sample=choice:CreateTexture(nil,"OVERLAY"); sample:SetSize(38,8); sample:SetPoint("LEFT",8,0); sample:SetTexture(entry.path)
+        local label=choice:GetFontString(); if label then label:SetJustifyH("RIGHT"); label:SetWidth(88); label:ClearAllPoints(); label:SetPoint("RIGHT",-8,0) end
+        choice:SetScript("OnClick",function() working.texture=key; textureMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
+    end
+    textureButton:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu:IsShown() then textureMenu:Hide() else textureMenu:Show() end end)
     healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
     powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls() end)
     roleIconButton=MakeButton(appearance,"Role Icon: Off",155,26); roleIconButton:SetPoint("TOPLEFT",15,-102); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls() end)
