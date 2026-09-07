@@ -183,19 +183,20 @@ local function ApplyFrame(frame,sizeOverride)
     local powerHeight=math.max(8,math.floor(height*(ns.GetPowerPercent(unitType)/100)))
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
-    local function PositionText(text,align,leftOffset,rightOffset,rightText)
-        text:ClearAllPoints(); align=align=="TOP" and "TOP" or (align=="BOTTOM" and "BOTTOM" or "MIDDLE")
-        if rightText then
-            if align=="TOP" then text:SetPoint("TOPRIGHT",frame.Health,"TOPRIGHT",-rightOffset,-3)
-            elseif align=="BOTTOM" then text:SetPoint("BOTTOMRIGHT",frame.Health,"BOTTOMRIGHT",-rightOffset,3)
-            else text:SetPoint("RIGHT",frame.Health,"RIGHT",-rightOffset,0) end
-        else
-            if align=="TOP" then text:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",leftOffset,-3); text:SetPoint("TOPRIGHT",frame.Health,"TOPRIGHT",-rightOffset,-3)
-            elseif align=="BOTTOM" then text:SetPoint("BOTTOMLEFT",frame.Health,"BOTTOMLEFT",leftOffset,3); text:SetPoint("BOTTOMRIGHT",frame.Health,"BOTTOMRIGHT",-rightOffset,3)
-            else text:SetPoint("LEFT",frame.Health,"LEFT",leftOffset,0); text:SetPoint("RIGHT",frame.Health,"RIGHT",-rightOffset,0) end
-        end
-    end
-    PositionText(frame.NameText,appearance.nameVAlign,6,48,false); PositionText(frame.HealthText,appearance.healthVAlign,0,6,true); frame.HealthText:SetWidth(42)
+
+    -- Name and health text use stable left/right anchors with independent X/Y
+    -- movement. This replaces the old coarse vertical alignment selectors and
+    -- lets each frame type move text around role icons, portraits, or other UI.
+    local nameX,nameY=appearance.nameXOffset or 6,appearance.nameYOffset or 0
+    frame.NameText:ClearAllPoints()
+    frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY)
+    frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
+
+    local healthX,healthY=appearance.healthXOffset or -6,appearance.healthYOffset or 0
+    frame.HealthText:ClearAllPoints()
+    frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY)
+    frame.HealthText:SetWidth(42)
+
     local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     ApplyColorModes(frame,appearance); ApplyRoleIcon(frame,appearance)
