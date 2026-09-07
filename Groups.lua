@@ -186,7 +186,9 @@ function ns.ApplyPartyLayout()
     local layout = ns.GetGroupLayout("party")
     if not layout then return end
 
+    local partyPlayer = ns.frames.partyplayer
     if not IsInGroup() or IsInRaid() then
+        if partyPlayer then partyPlayer:Hide() end
         ns.partyFrameMoverOwner = nil
         ns.partyAuraMoverOwner = nil
         return
@@ -198,8 +200,14 @@ function ns.ApplyPartyLayout()
         local frame = ns.frames[unit]
         if frame and UnitExists(unit) then ordered[#ordered + 1] = frame end
     end
-    if layout.includePlayer and ns.frames.partyplayer then
-        ordered[#ordered + 1] = ns.frames.partyplayer
+
+    if partyPlayer then
+        if layout.includePlayer then
+            partyPlayer:Show()
+            ordered[#ordered + 1] = partyPlayer
+        else
+            partyPlayer:Hide()
+        end
     end
 
     table.sort(ordered, function(a, b)
