@@ -32,6 +32,7 @@ local working, auraWorking, groupWorking = {}, {}, {}
 local pendingEnabled, pendingAuraLayouts = {}, {}
 local pendingTrackedBuffs, pendingPartyIncludePlayer
 local hasPendingChanges = false
+local previewTextType
 
 local function Round(v) return math.floor((v or 0) + 0.5) end
 local function Cycle(current, order)
@@ -72,6 +73,30 @@ local function MakeSection(parent,title,width,height)
     section:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); section:SetBackdropColor(0.02,0.025,0.03,0.55); section:SetBackdropBorderColor(0.18,0.22,0.28,0.95)
     local label=section:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,12,"OUTLINE"); label:SetPoint("TOPLEFT",10,-8); label:SetText(title); label:SetTextColor(0.82,0.88,0.95); section.Title=label
     return section
+end
+
+local function RestoreTextPreview(unitType)
+    unitType=unitType or previewTextType
+    if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
+    if previewTextType==unitType then previewTextType=nil end
+end
+
+local function PreviewTextOffsets()
+    if refreshing or InCombatLockdown() or not ns.frames then return end
+    local nameX=Round(nameXSlider:GetValue()); local nameY=Round(nameYSlider:GetValue())
+    local healthX=Round(healthXSlider:GetValue()); local healthY=Round(healthYSlider:GetValue())
+    working.nameXOffset=nameX; working.nameYOffset=nameY; working.healthXOffset=healthX; working.healthYOffset=healthY
+    for _,frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==selectedType then
+            if frame.NameText and frame.Health then
+                frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
+            end
+            if frame.HealthText and frame.Health then
+                frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(42)
+            end
+        end
+    end
+    previewTextType=selectedType
 end
 
 local function AuraAvailable(unitType,auraType)
@@ -217,6 +242,7 @@ local function ApplySelected()
     if selectedType=="party" or selectedType=="boss" then
         ns.SaveGroupLayout(selectedType,{orientation=groupWorking.orientation or "VERTICAL",direction=groupWorking.direction or "DOWN",spacing=Round(partySpacingSlider:GetValue())})
     end
+    previewTextType=nil
     ns.ApplyFrameType(selectedType); statusText:SetText(DISPLAY_NAMES[selectedType].." appearance applied.")
 end
 
@@ -233,11 +259,12 @@ end
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
+    config:SetScript("OnHide",function() RestoreTextPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
     frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() selectedPage="frames"; ns.RefreshConfig() end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
+    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() RestoreTextPreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
     local prev
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
@@ -245,10 +272,10 @@ local function CreateShell()
             if InCombatLockdown() then self:SetChecked(ns.IsFrameTypeEnabled(unitType)); return end
             pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
-        local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function() selectedType=unitType; ns.RefreshConfig() end); frameButtons[unitType]=b; prev=row
+        local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function() if previewTextType and previewTextType~=unitType then RestoreTextPreview(previewTextType) end; selectedType=unitType; ns.RefreshConfig() end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyPendingChanges)
-    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then ns.ResetAllSettings(); ns.ResetLayout(); ns.RefreshConfig() end end)
+    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then previewTextType=nil; ns.ResetAllSettings(); ns.ResetLayout(); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
     statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
@@ -274,11 +301,11 @@ local function CreateFramesPage()
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34); fontButton:SetScript("OnClick",function() working.fontFace=Cycle(working.fontFace or "friz",ns.Media.fontOrder); RefreshFrameControls() end)
     fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76)
     nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
-    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172)
-    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172)
+    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewTextOffsets)
+    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172); nameYSlider:HookScript("OnValueChanged",PreviewTextOffsets)
     healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls() end)
-    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264)
-    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264)
+    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewTextOffsets)
+    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewTextOffsets)
 
     textureButton=MakeButton(appearance,"Texture",145,26); textureButton:SetPoint("TOPLEFT",15,-34); textureButton:SetScript("OnClick",function() working.texture=Cycle(working.texture,ns.Media.textureOrder); RefreshFrameControls() end)
     healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
@@ -287,7 +314,7 @@ local function CreateFramesPage()
     bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75)
     borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125)
     local apply=MakeButton(framesPage,"Apply Frame",100,28); apply:SetPoint("BOTTOMLEFT",20,8); apply:SetScript("OnClick",ApplySelected)
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
+    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewTextType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
