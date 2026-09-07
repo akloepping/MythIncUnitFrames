@@ -81,17 +81,14 @@ local function CreateMover(self, unit)
     resize:SetScript("OnMouseDown",function(_,button)
         if button~="LeftButton" or InCombatLockdown() then return end
         local left,top=self:GetLeft(),self:GetTop(); if not left or not top then return end
-        local startW,startH=self:GetWidth(),self:GetHeight(); local aspect=startW/math.max(1,startH)
-        local minW=math.max(100,24*aspect); local maxW=math.min(600,150*aspect); if minW>maxW then minW,maxW=startW,startW end
-        resize.MIUF_ResizeState={unitType=self.MIUF_UnitType,left=left,top=top,startW=startW,startH=startH,aspect=aspect,minW=minW,maxW=maxW}
+        resize.MIUF_ResizeState={unitType=self.MIUF_UnitType,left=left,top=top,minW=100,maxW=600,minH=24,maxH=150}
         self:ClearAllPoints(); self:SetPoint("TOPLEFT",UIParent,"BOTTOMLEFT",left,top)
         resize:SetScript("OnUpdate",function(handle)
             local s=handle.MIUF_ResizeState; if not s or InCombatLockdown() then return end
             local scale=UIParent:GetEffectiveScale(); local cx,cy=GetCursorPosition(); cx,cy=cx/scale,cy/scale
-            local rawW,rawH=math.max(1,cx-s.left),math.max(1,s.top-cy)
-            local dw=math.abs(rawW-s.startW)/math.max(1,s.startW); local dh=math.abs(rawH-s.startH)/math.max(1,s.startH)
-            local width=(dw>=dh) and rawW or (rawH*s.aspect); width=math.max(s.minW,math.min(s.maxW,width))
-            if ns.PreviewFrameSize then ns.PreviewFrameSize(s.unitType,width,width/s.aspect) end
+            local width=math.max(s.minW,math.min(s.maxW,cx-s.left))
+            local height=math.max(s.minH,math.min(s.maxH,s.top-cy))
+            if ns.PreviewFrameSize then ns.PreviewFrameSize(s.unitType,width,height) end
         end)
     end)
     resize:SetScript("OnMouseUp",function(handle,button)
