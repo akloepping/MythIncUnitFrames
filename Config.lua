@@ -153,7 +153,8 @@ local function ApplyAuraVisual(unitType,auraType,layout)
     if InCombatLockdown() or not ns.frames or not layout then return end
     local field=AURA_FIELDS[auraType]; if not field then return end
     local point,relativePoint=GetAuraAnchor(layout)
-    local iconSize=math.max(1,tonumber(layout.iconSize) or 16)
+    local savedLayout=ns.GetAuraLayout(unitType,auraType)
+    local iconSize=math.max(1,tonumber(savedLayout and savedLayout.iconSize) or 16)
     local spacing=math.max(0,tonumber(layout.spacing) or 0)
     local maxCount=math.max(1,tonumber(layout.maxCount) or 1)
     for _,frame in pairs(ns.frames) do
@@ -179,20 +180,20 @@ local function RestoreAuraPreview()
     previewAuraUnitType,previewAuraType=nil,nil
 end
 
-local function PreviewAuraSliders()
-    if refreshing or InCombatLockdown() or not AuraAvailable(selectedType,selectedAura) then return end
-    auraWorking.iconSize=Round(auraSizeSlider:GetValue()); auraWorking.maxCount=Round(auraCountSlider:GetValue()); auraWorking.spacing=Round(auraSpacingSlider:GetValue())
-    auraWorking.xOffset=Round(auraXSlider:GetValue()); auraWorking.yOffset=Round(auraYSlider:GetValue())
-    ApplyAuraVisual(selectedType,selectedAura,auraWorking)
-    previewAuraUnitType,previewAuraType=selectedType,selectedAura
-end
-
-function AuraAvailable(unitType,auraType)
+local function AuraAvailable(unitType,auraType)
     if unitType=="boss" then return false end
     if auraType=="buffs" then return unitType=="player" or unitType=="target" or unitType=="focus" or unitType=="party" or unitType=="targettarget" end
     if auraType=="debuffs" then return unitType~="pet" end
     if auraType=="defensives" then return unitType=="player" or unitType=="party" end
     return false
+end
+
+local function PreviewAuraSliders()
+    if refreshing or InCombatLockdown() or not AuraAvailable(selectedType,selectedAura) then return end
+    auraWorking.maxCount=Round(auraCountSlider:GetValue()); auraWorking.spacing=Round(auraSpacingSlider:GetValue())
+    auraWorking.xOffset=Round(auraXSlider:GetValue()); auraWorking.yOffset=Round(auraYSlider:GetValue())
+    ApplyAuraVisual(selectedType,selectedAura,auraWorking)
+    previewAuraUnitType,previewAuraType=selectedType,selectedAura
 end
 
 local function ChooseAvailableAura()
@@ -257,9 +258,9 @@ local function RefreshAuraControls()
     if available then
         auraEnableButton:SetText("Enabled: "..(auraWorking.enabled~=false and "On" or "Off")); auraTextButton:SetText("Text: "..(auraWorking.showText~=false and "On" or "Off"))
         auraSizeSlider:SetValue(auraWorking.iconSize); auraCountSlider:SetValue(auraWorking.maxCount); auraSpacingSlider:SetValue(auraWorking.spacing); auraXSlider:SetValue(auraWorking.xOffset); auraYSlider:SetValue(auraWorking.yOffset)
-        auraAnchorButton:SetText("Position: "..(ANCHOR_NAMES[auraWorking.anchor] or auraWorking.anchor)); auraGrowthButton:SetText("Grow: "..(GROWTH_NAMES[auraWorking.growth] or auraWorking.growth))
+        auraAnchorButton:SetText("Anchor: "..(ANCHOR_NAMES[auraWorking.anchor] or auraWorking.anchor)); auraGrowthButton:SetText("Grow: "..(GROWTH_NAMES[auraWorking.growth] or auraWorking.growth))
     else
-        auraEnableButton:SetText("Enabled: N/A"); auraTextButton:SetText("Text: N/A"); auraAnchorButton:SetText("Position: N/A"); auraGrowthButton:SetText("Grow: N/A")
+        auraEnableButton:SetText("Enabled: N/A"); auraTextButton:SetText("Text: N/A"); auraAnchorButton:SetText("Anchor: N/A"); auraGrowthButton:SetText("Grow: N/A")
     end
 end
 
@@ -424,7 +425,7 @@ local function CreateAurasPage()
     end
     auraEnableButton=MakeButton(aurasPage,"Enabled: On",125,26); auraEnableButton:SetPoint("TOPLEFT",20,-132); auraEnableButton:SetScript("OnClick",function() auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled); RefreshAuraControls(); if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end end)
     auraTextButton=MakeButton(aurasPage,"Text: On",110,26); auraTextButton:SetPoint("LEFT",auraEnableButton,"RIGHT",7,0); auraTextButton:SetScript("OnClick",function() auraWorking.showText=auraWorking.showText==false; StageAuraValue("showText",auraWorking.showText); RefreshAuraControls() end)
-    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)); PreviewAuraSliders() end end)
+    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)) end end)
     auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end end)
     auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end end)
     local function StageAuraPosition()
@@ -434,9 +435,10 @@ local function CreateAurasPage()
     end
     auraXSlider=MakeSlider(aurasPage,"AuraXOffset","X offset",-400,400,1,180); auraXSlider:SetPoint("TOPLEFT",35,-275); auraXSlider:HookScript("OnValueChanged",StageAuraPosition)
     auraYSlider=MakeSlider(aurasPage,"AuraYOffset","Y offset",-400,400,1,180); auraYSlider:SetPoint("TOPLEFT",260,-275); auraYSlider:HookScript("OnValueChanged",StageAuraPosition)
-    auraAnchorButton=MakeButton(aurasPage,"Position: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls() end)
+    auraAnchorButton=MakeButton(aurasPage,"Anchor: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls() end)
     auraGrowthButton=MakeButton(aurasPage,"Grow: Right",125,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",7,0); auraGrowthButton:SetScript("OnClick",function() auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth); RefreshAuraControls() end)
-    buffFilterPanel=CreateFrame("Frame",nil,aurasPage); buffFilterPanel:SetPoint("TOPLEFT",20,-350); buffFilterPanel:SetSize(650,72)
+    local anchorNote=aurasPage:CreateFontString(nil,"OVERLAY"); anchorNote:SetFont(FONT,10,"OUTLINE"); anchorNote:SetPoint("TOPLEFT",35,-323); anchorNote:SetWidth(620); anchorNote:SetJustifyH("LEFT"); anchorNote:SetText("X/Y offsets are measured from the selected unit frame's Top or Bottom anchor edge."); anchorNote:SetTextColor(0.7,0.76,0.82)
+    buffFilterPanel=CreateFrame("Frame",nil,aurasPage); buffFilterPanel:SetPoint("TOPLEFT",20,-365); buffFilterPanel:SetSize(650,72)
     local note=buffFilterPanel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,11,"OUTLINE"); note:SetPoint("TOPLEFT"); note:SetText("Tracked Buffs: only buffs you choose are shown on normal buff frames.")
     manageTrackedButton=MakeButton(buffFilterPanel,"Manage Tracked Buffs",180,24); manageTrackedButton:SetPoint("TOPLEFT",0,-25)
     trackedBuffWindow=CreateFrame("Frame","MIUF_TrackedBuffWindow",UIParent,"BackdropTemplate"); trackedBuffWindow:SetSize(620,300); trackedBuffWindow:SetPoint("CENTER"); trackedBuffWindow:SetFrameStrata("DIALOG"); trackedBuffWindow:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); trackedBuffWindow:SetBackdropColor(0.035,0.04,0.05,0.98); trackedBuffWindow:Hide()
