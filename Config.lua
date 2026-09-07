@@ -6,6 +6,7 @@ local FRAME_TYPES = { "player", "target", "focus", "pet", "targettarget", "party
 local DISPLAY_NAMES = { player="Player", target="Target", focus="Focus", pet="Pet", targettarget="Target of Target", party="Party", boss="Boss" }
 local AURA_TYPES = { "buffs", "debuffs", "defensives" }
 local AURA_NAMES = { buffs="Buffs", debuffs="Debuffs", defensives="Defensives" }
+local AURA_FIELDS = { buffs="PlayerBuffs", debuffs="CombatDebuffs", defensives="ExternalDefensives" }
 local ANCHOR_NAMES = { TOP="Top", BOTTOM="Bottom" }
 local GROWTH_NAMES = { RIGHT="Right", LEFT="Left" }
 local ANCHOR_ORDER = { "TOP", "BOTTOM" }
@@ -32,7 +33,8 @@ local working, auraWorking, groupWorking = {}, {}, {}
 local pendingEnabled, pendingAuraLayouts = {}, {}
 local pendingTrackedBuffs, pendingPartyIncludePlayer
 local hasPendingChanges = false
-local previewTextType
+local previewFrameType
+local previewAuraUnitType, previewAuraType
 
 local function Round(v) return math.floor((v or 0) + 0.5) end
 local function Cycle(current, order)
@@ -75,31 +77,117 @@ local function MakeSection(parent,title,width,height)
     return section
 end
 
-local function RestoreTextPreview(unitType)
-    unitType=unitType or previewTextType
+local function RestoreFramePreview(unitType)
+    unitType=unitType or previewFrameType
     if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
-    if previewTextType==unitType then previewTextType=nil end
+    if previewFrameType==unitType then previewFrameType=nil end
 end
 
-local function PreviewTextOffsets()
+local function PreviewFrameSliders()
     if refreshing or InCombatLockdown() or not ns.frames then return end
-    local nameX=Round(nameXSlider:GetValue()); local nameY=Round(nameYSlider:GetValue())
-    local healthX=Round(healthXSlider:GetValue()); local healthY=Round(healthYSlider:GetValue())
-    working.nameXOffset=nameX; working.nameYOffset=nameY; working.healthXOffset=healthX; working.healthYOffset=healthY
+    local width,height=Round(widthSlider:GetValue()),Round(heightSlider:GetValue())
+    local powerPercent=Round(powerSlider:GetValue())
+    local portraitPercent=Round(portraitSlider:GetValue())
+    local fontSize=Round(fontSlider:GetValue())
+    local backgroundOpacity=Round(bgSlider:GetValue())
+    local borderOpacity=Round(borderSlider:GetValue())
+    local nameX,nameY=Round(nameXSlider:GetValue()),Round(nameYSlider:GetValue())
+    local healthX,healthY=Round(healthXSlider:GetValue()),Round(healthYSlider:GetValue())
+
+    working.fontSize=fontSize; working.portraitPercent=portraitPercent
+    working.backgroundOpacity=backgroundOpacity; working.borderOpacity=borderOpacity
+    working.nameXOffset=nameX; working.nameYOffset=nameY
+    working.healthXOffset=healthX; working.healthYOffset=healthY
+    if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
+
     for _,frame in pairs(ns.frames) do
         if frame.MIUF_UnitType==selectedType then
+            frame:SetSize(width,height)
+            local portraitWidth=working.showPortrait and math.max(18,math.floor(width*(portraitPercent/100))) or 0
+            if frame.Portrait then
+                frame.Portrait:ClearAllPoints()
+                if working.showPortrait then
+                    frame.Portrait:SetWidth(portraitWidth); frame.Portrait:SetPoint("TOP",frame,"TOP",0,-2); frame.Portrait:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
+                    if working.portraitSide=="RIGHT" then frame.Portrait:SetPoint("RIGHT",frame,"RIGHT",-2,0) else frame.Portrait:SetPoint("LEFT",frame,"LEFT",2,0) end
+                    frame.Portrait:Show()
+                else frame.Portrait:Hide() end
+            end
+            local leftInset,rightInset=2,2
+            if working.showPortrait then if working.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
+            local powerHeight=math.max(8,math.floor(height*(powerPercent/100)))
+            if frame.Health then
+                frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
+            end
+            if frame.Power then
+                frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
+            end
             if frame.NameText and frame.Health then
                 frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
+                frame.NameText:SetFont(ns.GetFontPath(working.fontFace),fontSize,"OUTLINE")
             end
             if frame.HealthText and frame.Health then
                 frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(42)
+                frame.HealthText:SetFont(ns.GetFontPath(working.fontFace),math.max(9,fontSize-1),"OUTLINE")
+            end
+            if frame.Background then frame.Background:SetColorTexture(0.03,0.03,0.03,backgroundOpacity/100) end
+            if frame.Border then frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,borderOpacity/100) end
+            if ns.ResizeAuraContainers then ns.ResizeAuraContainers(frame,width) end
+        end
+    end
+    if ns.ApplyGroupLayout and (selectedType=="party" or selectedType=="boss") then ns.ApplyGroupLayout(selectedType) end
+    previewFrameType=selectedType
+end
+
+local function GetAuraAnchor(layout)
+    local anchor=layout.anchor=="BOTTOM" and "BOTTOM" or "TOP"
+    local growth=layout.growth=="LEFT" and "LEFT" or "RIGHT"
+    if anchor=="TOP" then
+        if growth=="LEFT" then return "BOTTOMRIGHT","TOPRIGHT" end
+        return "BOTTOMLEFT","TOPLEFT"
+    end
+    if growth=="LEFT" then return "TOPRIGHT","BOTTOMRIGHT" end
+    return "TOPLEFT","BOTTOMLEFT"
+end
+
+local function ApplyAuraVisual(unitType,auraType,layout)
+    if InCombatLockdown() or not ns.frames or not layout then return end
+    local field=AURA_FIELDS[auraType]; if not field then return end
+    local point,relativePoint=GetAuraAnchor(layout)
+    local iconSize=math.max(1,tonumber(layout.iconSize) or 16)
+    local spacing=math.max(0,tonumber(layout.spacing) or 0)
+    local maxCount=math.max(1,tonumber(layout.maxCount) or 1)
+    for _,frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==unitType then
+            local container=frame[field]
+            if container then
+                container.size=iconSize; container.elementSpacing=spacing; container.lineSpacing=spacing; container.maxFrameCount=maxCount
+                if container.MIUF_GroupKey and container.SetAuraGroupLayout then
+                    container:SetAuraGroupLayout(container.MIUF_GroupKey,{elementWidth=iconSize,elementHeight=iconSize,elementSpacing=spacing,lineSpacing=spacing,maxFrameCount=maxCount})
+                end
+                if container.MIUF_Anchor then
+                    container.MIUF_Anchor:SetHeight((iconSize*2)+spacing+4)
+                    container.MIUF_Anchor:ClearAllPoints(); container.MIUF_Anchor:SetPoint(point,frame,relativePoint,layout.xOffset or 0,layout.yOffset or 0)
+                end
+                if container.ForceUpdate then container:ForceUpdate() end
             end
         end
     end
-    previewTextType=selectedType
 end
 
-local function AuraAvailable(unitType,auraType)
+local function RestoreAuraPreview()
+    if previewAuraUnitType and previewAuraType then ApplyAuraVisual(previewAuraUnitType,previewAuraType,ns.GetAuraLayout(previewAuraUnitType,previewAuraType)) end
+    previewAuraUnitType,previewAuraType=nil,nil
+end
+
+local function PreviewAuraSliders()
+    if refreshing or InCombatLockdown() or not AuraAvailable(selectedType,selectedAura) then return end
+    auraWorking.iconSize=Round(auraSizeSlider:GetValue()); auraWorking.maxCount=Round(auraCountSlider:GetValue()); auraWorking.spacing=Round(auraSpacingSlider:GetValue())
+    auraWorking.xOffset=Round(auraXSlider:GetValue()); auraWorking.yOffset=Round(auraYSlider:GetValue())
+    ApplyAuraVisual(selectedType,selectedAura,auraWorking)
+    previewAuraUnitType,previewAuraType=selectedType,selectedAura
+end
+
+function AuraAvailable(unitType,auraType)
     if unitType=="boss" then return false end
     if auraType=="buffs" then return unitType=="player" or unitType=="target" or unitType=="focus" or unitType=="party" or unitType=="targettarget" end
     if auraType=="debuffs" then return unitType~="pet" end
@@ -231,6 +319,9 @@ function ns.RefreshConfig()
     end
     statusText:SetText(InCombatLockdown() and "Changes are disabled during combat." or (hasPendingChanges and "Pending protected changes are waiting. Click Apply Changes when ready." or "Appearance changes use Apply Frame; protected changes use Apply Changes."))
     refreshing=false
+    if selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
+        ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
+    end
 end
 
 local function ApplySelected()
@@ -242,7 +333,7 @@ local function ApplySelected()
     if selectedType=="party" or selectedType=="boss" then
         ns.SaveGroupLayout(selectedType,{orientation=groupWorking.orientation or "VERTICAL",direction=groupWorking.direction or "DOWN",spacing=Round(partySpacingSlider:GetValue())})
     end
-    previewTextType=nil
+    previewFrameType=nil
     ns.ApplyFrameType(selectedType); statusText:SetText(DISPLAY_NAMES[selectedType].." appearance applied.")
 end
 
@@ -253,18 +344,19 @@ local function ApplyPendingChanges()
     if pendingPartyIncludePlayer~=nil then ns.SaveGroupLayout("party",{includePlayer=pendingPartyIncludePlayer}) end
     if pendingTrackedBuffs then ns.SetTrackedBuffs(pendingTrackedBuffs) end
     pendingEnabled={}; pendingAuraLayouts={}; pendingPartyIncludePlayer=nil; pendingTrackedBuffs=nil; hasPendingChanges=false
+    previewAuraUnitType,previewAuraType=nil,nil
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true); ReloadUI()
 end
 
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() RestoreTextPreview() end)
+    config:SetScript("OnHide",function() RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
-    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() selectedPage="frames"; ns.RefreshConfig() end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() RestoreTextPreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
+    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
+    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
     local prev
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
@@ -272,10 +364,14 @@ local function CreateShell()
             if InCombatLockdown() then self:SetChecked(ns.IsFrameTypeEnabled(unitType)); return end
             pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
-        local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function() if previewTextType and previewTextType~=unitType then RestoreTextPreview(previewTextType) end; selectedType=unitType; ns.RefreshConfig() end); frameButtons[unitType]=b; prev=row
+        local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
+            if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
+            if previewAuraUnitType then RestoreAuraPreview() end
+            selectedType=unitType; ns.RefreshConfig()
+        end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyPendingChanges)
-    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then previewTextType=nil; ns.ResetAllSettings(); ns.ResetLayout(); ns.RefreshConfig() end end)
+    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; previewAuraUnitType=nil; previewAuraType=nil; ns.ResetAllSettings(); ns.ResetLayout(); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
     statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
@@ -285,10 +381,10 @@ local function CreateFramesPage()
     local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
     local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
     local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
-    widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42)
-    heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102)
-    powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162)
-    portraitSlider=MakeSlider(layout,"PortraitPercent","Portrait width (%)",12,40,1,285); portraitSlider:SetPoint("TOPLEFT",20,-222)
+    widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    portraitSlider=MakeSlider(layout,"PortraitPercent","Portrait width (%)",12,40,1,285); portraitSlider:SetPoint("TOPLEFT",20,-222); portraitSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     portraitButton=MakeButton(layout,"Portrait: Off",118,26); portraitButton:SetPoint("TOPLEFT",15,-282); portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls() end)
     sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls() end)
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
@@ -296,25 +392,25 @@ local function CreateFramesPage()
     partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; RefreshGroupControls() end)
     partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; RefreshGroupControls() end)
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); MarkPending("Party player inclusion staged.") end)
-    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v) end end)
+    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); PreviewFrameSliders() end end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34); fontButton:SetScript("OnClick",function() working.fontFace=Cycle(working.fontFace or "friz",ns.Media.fontOrder); RefreshFrameControls() end)
-    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76)
+    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
-    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewTextOffsets)
-    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172); nameYSlider:HookScript("OnValueChanged",PreviewTextOffsets)
+    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172); nameYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls() end)
-    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewTextOffsets)
-    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewTextOffsets)
+    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
     textureButton=MakeButton(appearance,"Texture",145,26); textureButton:SetPoint("TOPLEFT",15,-34); textureButton:SetScript("OnClick",function() working.texture=Cycle(working.texture,ns.Media.textureOrder); RefreshFrameControls() end)
     healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
     powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls() end)
     roleIconButton=MakeButton(appearance,"Role Icon: Off",155,26); roleIconButton:SetPoint("TOPLEFT",15,-102); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls() end)
-    bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75)
-    borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125)
+    bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     local apply=MakeButton(framesPage,"Apply Frame",100,28); apply:SetPoint("BOTTOMLEFT",20,8); apply:SetScript("OnClick",ApplySelected)
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewTextType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
+    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -322,19 +418,23 @@ local function CreateAurasPage()
     aurasPage=CreateFrame("Frame",nil,config); aurasPage:SetPoint("TOPLEFT",160,-80); aurasPage:SetPoint("BOTTOMRIGHT",-10,50)
     auraLabel=aurasPage:CreateFontString(nil,"OVERLAY"); auraLabel:SetFont(FONT,13,"OUTLINE"); auraLabel:SetPoint("TOPLEFT",20,-70)
     local prev
-    for _,auraType in ipairs(AURA_TYPES) do local b=MakeButton(aurasPage,AURA_NAMES[auraType],105,26); if prev then b:SetPoint("LEFT",prev,"RIGHT",7,0) else b:SetPoint("TOPLEFT",20,-96) end; b:SetScript("OnClick",function() selectedAura=auraType; ns.RefreshConfig() end); auraButtons[auraType]=b; prev=b end
+    for _,auraType in ipairs(AURA_TYPES) do
+        local b=MakeButton(aurasPage,AURA_NAMES[auraType],105,26); if prev then b:SetPoint("LEFT",prev,"RIGHT",7,0) else b:SetPoint("TOPLEFT",20,-96) end
+        b:SetScript("OnClick",function() RestoreAuraPreview(); selectedAura=auraType; ns.RefreshConfig() end); auraButtons[auraType]=b; prev=b
+    end
     auraEnableButton=MakeButton(aurasPage,"Enabled: On",125,26); auraEnableButton:SetPoint("TOPLEFT",20,-132); auraEnableButton:SetScript("OnClick",function() auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled); RefreshAuraControls(); if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end end)
     auraTextButton=MakeButton(aurasPage,"Text: On",110,26); auraTextButton:SetPoint("LEFT",auraEnableButton,"RIGHT",7,0); auraTextButton:SetScript("OnClick",function() auraWorking.showText=auraWorking.showText==false; StageAuraValue("showText",auraWorking.showText); RefreshAuraControls() end)
-    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then local n=Round(v); StageAuraValue("iconSize",n); if ns.PreviewAuraIconSize then ns.PreviewAuraIconSize(selectedType,selectedAura,n) end end end)
-    auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)) end end)
-    auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)) end end)
-    local function SaveAuraPosition()
+    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)); PreviewAuraSliders() end end)
+    auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end end)
+    auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end end)
+    local function StageAuraPosition()
         if refreshing or InCombatLockdown() or not AuraAvailable(selectedType,selectedAura) then return end
-        auraWorking.xOffset=Round(auraXSlider:GetValue()); auraWorking.yOffset=Round(auraYSlider:GetValue()); ns.SaveAuraLayout(selectedType,selectedAura,{xOffset=auraWorking.xOffset,yOffset=auraWorking.yOffset,anchor=auraWorking.anchor}); ns.ApplyAuraPositions(selectedType,selectedAura)
+        local x,y=Round(auraXSlider:GetValue()),Round(auraYSlider:GetValue())
+        StageAuraValue("xOffset",x); StageAuraValue("yOffset",y); PreviewAuraSliders()
     end
-    auraXSlider=MakeSlider(aurasPage,"AuraXOffset","X offset",-400,400,1,180); auraXSlider:SetPoint("TOPLEFT",35,-275); auraXSlider:HookScript("OnValueChanged",SaveAuraPosition)
-    auraYSlider=MakeSlider(aurasPage,"AuraYOffset","Y offset",-400,400,1,180); auraYSlider:SetPoint("TOPLEFT",260,-275); auraYSlider:HookScript("OnValueChanged",SaveAuraPosition)
-    auraAnchorButton=MakeButton(aurasPage,"Position: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); SaveAuraPosition(); RefreshAuraControls() end)
+    auraXSlider=MakeSlider(aurasPage,"AuraXOffset","X offset",-400,400,1,180); auraXSlider:SetPoint("TOPLEFT",35,-275); auraXSlider:HookScript("OnValueChanged",StageAuraPosition)
+    auraYSlider=MakeSlider(aurasPage,"AuraYOffset","Y offset",-400,400,1,180); auraYSlider:SetPoint("TOPLEFT",260,-275); auraYSlider:HookScript("OnValueChanged",StageAuraPosition)
+    auraAnchorButton=MakeButton(aurasPage,"Position: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls() end)
     auraGrowthButton=MakeButton(aurasPage,"Grow: Right",125,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",7,0); auraGrowthButton:SetScript("OnClick",function() auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth); RefreshAuraControls() end)
     buffFilterPanel=CreateFrame("Frame",nil,aurasPage); buffFilterPanel:SetPoint("TOPLEFT",20,-350); buffFilterPanel:SetSize(650,72)
     local note=buffFilterPanel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,11,"OUTLINE"); note:SetPoint("TOPLEFT"); note:SetText("Tracked Buffs: only buffs you choose are shown on normal buff frames.")
@@ -349,7 +449,7 @@ local function CreateAurasPage()
     local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
     manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
-    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then ns.ResetAuraLayout(selectedType,selectedAura); ns.RefreshConfig() end end)
+    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); ns.ResetAuraLayout(selectedType,selectedAura); ns.RefreshConfig() end end)
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
