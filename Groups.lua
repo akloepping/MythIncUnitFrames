@@ -102,6 +102,15 @@ local function PositionPreviewFrame(frame, previous, layout, spacing)
     end
 end
 
+local function GetLiveGroupSize(unitType)
+    if not ns.frames then return nil end
+    local frame = unitType == "party" and ns.frames.party1 or ns.frames.boss1
+    if not frame then return nil end
+    local width, height = frame:GetWidth(), frame:GetHeight()
+    if not width or not height or width <= 0 or height <= 0 then return nil end
+    return width, height
+end
+
 function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
     if InCombatLockdown() or (unitType ~= "party" and unitType ~= "boss") then return end
     if ns.AreFrameMoversLocked and ns.AreFrameMoversLocked() then
@@ -126,8 +135,9 @@ function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
     previewLayouts[unitType] = layout
 
     local savedSize = ns.GetSize(unitType) or { width = 200, height = 40 }
-    local width = tonumber(sizeOverride and sizeOverride.width) or tonumber(savedSize.width) or 200
-    local height = tonumber(sizeOverride and sizeOverride.height) or tonumber(savedSize.height) or 40
+    local liveWidth, liveHeight = GetLiveGroupSize(unitType)
+    local width = tonumber(sizeOverride and sizeOverride.width) or tonumber(liveWidth) or tonumber(savedSize.width) or 200
+    local height = tonumber(sizeOverride and sizeOverride.height) or tonumber(liveHeight) or tonumber(savedSize.height) or 40
     local count = unitType == "party" and (layout.includePlayer and 5 or 4) or 5
     local list = EnsurePreviewFrames(unitType, count)
     if not list then return end
