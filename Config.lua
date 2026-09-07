@@ -4,8 +4,6 @@ local MEDIA = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local FRAME_TYPES = { "player", "target", "focus", "pet", "targettarget", "party", "boss" }
 local DISPLAY_NAMES = { player="Player", target="Target", focus="Focus", pet="Pet", targettarget="Target of Target", party="Party", boss="Boss" }
-local VALIGN_NAMES = { TOP="Top", MIDDLE="Center", BOTTOM="Bottom" }
-local VALIGN_ORDER = { "TOP", "MIDDLE", "BOTTOM" }
 local AURA_TYPES = { "buffs", "debuffs", "defensives" }
 local AURA_NAMES = { buffs="Buffs", debuffs="Debuffs", defensives="Defensives" }
 local ANCHOR_NAMES = { TOP="Top", BOTTOM="Bottom" }
@@ -18,10 +16,11 @@ local GROUP_ORIENTATION_ORDER = { "VERTICAL", "HORIZONTAL" }
 local selectedType, selectedAura, selectedPage = "player", "buffs", "frames"
 local config, framesPage, aurasPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
+local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton
-local textureButton, healthColorButton, powerColorButton, fontButton, nameAlignButton, healthAlignButton
+local textureButton, healthColorButton, powerColorButton, fontButton
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
 local frameTab, auraTab
 local partyLayoutPanel, partyOrientationButton, partyDirectionButton, partySpacingSlider, partyIncludePlayerButton
@@ -127,7 +126,6 @@ local function RefreshFrameControls()
     roleIconButton:SetShown(selectedType=="player" or selectedType=="party"); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
     textureButton:SetText("Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat")); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata"))
-    nameAlignButton:SetText("Name V: "..(VALIGN_NAMES[working.nameVAlign] or "Center")); healthAlignButton:SetText("Health V: "..(VALIGN_NAMES[working.healthVAlign] or "Center"))
 end
 
 local function RefreshGroupControls()
@@ -200,6 +198,7 @@ function ns.RefreshConfig()
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras")
     if selectedPage=="frames" then
         local size=ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
+        nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
     else
         for auraType,button in pairs(auraButtons) do button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
@@ -212,7 +211,9 @@ end
 local function ApplySelected()
     if refreshing or InCombatLockdown() then return end
     ns.SaveSize(selectedType,Round(widthSlider:GetValue()),Round(heightSlider:GetValue())); ns.SavePowerPercent(selectedType,Round(powerSlider:GetValue()))
-    working.fontSize=Round(fontSlider:GetValue()); working.portraitPercent=Round(portraitSlider:GetValue()); working.backgroundOpacity=Round(bgSlider:GetValue()); working.borderOpacity=Round(borderSlider:GetValue()); ns.SaveAppearance(selectedType,working)
+    working.fontSize=Round(fontSlider:GetValue()); working.portraitPercent=Round(portraitSlider:GetValue()); working.backgroundOpacity=Round(bgSlider:GetValue()); working.borderOpacity=Round(borderSlider:GetValue())
+    working.nameXOffset=Round(nameXSlider:GetValue()); working.nameYOffset=Round(nameYSlider:GetValue()); working.healthXOffset=Round(healthXSlider:GetValue()); working.healthYOffset=Round(healthYSlider:GetValue())
+    ns.SaveAppearance(selectedType,working)
     if selectedType=="party" or selectedType=="boss" then
         ns.SaveGroupLayout(selectedType,{orientation=groupWorking.orientation or "VERTICAL",direction=groupWorking.direction or "DOWN",spacing=Round(partySpacingSlider:GetValue())})
     end
@@ -230,7 +231,7 @@ local function ApplyPendingChanges()
 end
 
 local function CreateShell()
-    config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,650); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
+    config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
@@ -255,8 +256,8 @@ end
 local function CreateFramesPage()
     framesPage=CreateFrame("Frame",nil,config); framesPage:SetPoint("TOPLEFT",160,-80); framesPage:SetPoint("BOTTOMRIGHT",-10,50)
     local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
-    local text=MakeSection(framesPage,"Text",345,235); text:SetPoint("TOPLEFT",365,-62)
-    local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-297)
+    local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
+    local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
     widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42)
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162)
@@ -269,12 +270,16 @@ local function CreateFramesPage()
     partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; RefreshGroupControls() end)
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); MarkPending("Party player inclusion staged.") end)
     partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v) end end)
+
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34); fontButton:SetScript("OnClick",function() working.fontFace=Cycle(working.fontFace or "friz",ns.Media.fontOrder); RefreshFrameControls() end)
-    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-82)
-    nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-145); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
-    nameAlignButton=MakeButton(text,"Name V: Center",145,26); nameAlignButton:SetPoint("LEFT",nameButton,"RIGHT",8,0); nameAlignButton:SetScript("OnClick",function() working.nameVAlign=Cycle(working.nameVAlign or "MIDDLE",VALIGN_ORDER); RefreshFrameControls() end)
-    healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-181); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls() end)
-    healthAlignButton=MakeButton(text,"Health V: Center",145,26); healthAlignButton:SetPoint("LEFT",healthTextButton,"RIGHT",8,0); healthAlignButton:SetScript("OnClick",function() working.healthVAlign=Cycle(working.healthVAlign or "MIDDLE",VALIGN_ORDER); RefreshFrameControls() end)
+    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76)
+    nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
+    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172)
+    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172)
+    healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls() end)
+    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264)
+    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264)
+
     textureButton=MakeButton(appearance,"Texture",145,26); textureButton:SetPoint("TOPLEFT",15,-34); textureButton:SetScript("OnClick",function() working.texture=Cycle(working.texture,ns.Media.textureOrder); RefreshFrameControls() end)
     healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
     powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls() end)
