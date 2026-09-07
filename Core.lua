@@ -44,8 +44,10 @@ for unitType in pairs(defaultSizes) do
     defaultAppearance[unitType] = {
         fontSize = unitType == "party" and 11 or 12,
         fontFace = "friz",
-        nameVAlign = "MIDDLE",
-        healthVAlign = "MIDDLE",
+        nameXOffset = 6,
+        nameYOffset = 0,
+        healthXOffset = -6,
+        healthYOffset = 0,
         texture = "flat",
         healthColor = "automatic",
         powerColor = "automatic",
@@ -107,7 +109,17 @@ local function InitializeDatabase()
         MythIncUnitFramesDB.partyRoleIconsEnabled = nil
     end
 
-    MythIncUnitFramesDB.version = 16
+    -- Text positioning is now explicit X/Y movement instead of the old
+    -- top/center/bottom selectors. FillMissing above supplies centered defaults;
+    -- remove the obsolete keys so SavedVariables stay coherent going forward.
+    for _, appearance in pairs(MythIncUnitFramesDB.appearance) do
+        if type(appearance) == "table" then
+            appearance.nameVAlign = nil
+            appearance.healthVAlign = nil
+        end
+    end
+
+    MythIncUnitFramesDB.version = 17
 end
 
 ns.defaultPositions = defaultPositions
