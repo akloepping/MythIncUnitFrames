@@ -29,16 +29,16 @@ local function CreateBorder(parent)
     return border
 end
 
-local function ApplyPosition(unit, frame)
-    local p = ns.GetPosition(unit)
+local function ApplyPosition(positionKey, frame)
+    local p = ns.GetPosition(positionKey)
     if not p then return end
     frame:ClearAllPoints()
     frame:SetPoint(p.point, UIParent, p.relativePoint, p.x, p.y)
 end
 
-local function SaveMoverPosition(frame, unit)
+local function SaveMoverPosition(frame, positionKey)
     local point, _, relativePoint, x, y = frame:GetPoint(1)
-    ns.SavePosition(unit, point or "CENTER", relativePoint or point or "CENTER", x or 0, y or 0)
+    ns.SavePosition(positionKey, point or "CENTER", relativePoint or point or "CENTER", x or 0, y or 0)
 end
 
 local function BuildFrameState(unitType, overrides)
@@ -178,7 +178,7 @@ local function ApplyFrameState(frame, state)
     ApplyColors(frame, appearance)
 end
 
-local function CreateMover(frame, unit)
+local function CreateMover(frame, labelText, positionKey)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
 
@@ -194,14 +194,17 @@ local function CreateMover(frame, unit)
     local label = mover:CreateFontString(nil, "OVERLAY")
     label:SetFont(FONT, 11, "OUTLINE")
     label:SetPoint("CENTER")
-    label:SetText(unit)
+    label:SetText(labelText)
 
     mover:SetScript("OnDragStart", function()
         if not InCombatLockdown() then frame:StartMoving() end
     end)
     mover:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
-        if not InCombatLockdown() then SaveMoverPosition(frame, unit) end
+        if not InCombatLockdown() then
+            SaveMoverPosition(frame, positionKey)
+            if frame.MIUF_UnitType == "party" and ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
+        end
     end)
 
     local resize = CreateFrame("Button", nil, mover, "BackdropTemplate")
@@ -244,7 +247,7 @@ local function CreateMover(frame, unit)
         handle.MIUF_ResizeState = nil
         if not s or InCombatLockdown() then return end
         ns.SaveSize(s.unitType, frame:GetWidth(), frame:GetHeight())
-        SaveMoverPosition(frame, unit)
+        SaveMoverPosition(frame, positionKey)
         ns.ApplyFrameType(s.unitType)
         if ns.RefreshConfig then ns.RefreshConfig() end
     end)
@@ -254,11 +257,16 @@ local function CreateMover(frame, unit)
     frame.MIUF_Mover = mover
 end
 
-local function CreateNativeUnitFrame(unit, name)
-    local size = ns.GetSize(unit)
+local function CreateNativeUnitFrame(unit, name, unitType, positionKey)
+    unitType = unitType or unit
+    positionKey = positionKey or unit
+
+    local size = ns.GetSize(unitType)
     local frame = CreateFrame("Button", name, UIParent, "SecureUnitButtonTemplate")
     frame.MIUF_Unit = unit
-    frame.MIUF_UnitType = unit
+    frame.MIUF_UnitType = unitType
+    frame.MIUF_PositionKey = positionKey
+    frame.__unit = unit
     frame:SetAttribute("unit", unit)
     frame:SetAttribute("*type1", "target")
     frame:RegisterForClicks("AnyUp")
@@ -334,9 +342,9 @@ local function CreateNativeUnitFrame(unit, name)
         end
     end)
 
-    CreateMover(frame, unit)
-    ApplyPosition(unit, frame)
-    ApplyFrameState(frame, BuildFrameState(unit))
+    CreateMover(frame, unitType == "party" and unit or unitType, positionKey)
+    ApplyPosition(positionKey, frame)
+    ApplyFrameState(frame, BuildFrameState(unitType))
     UpdateFrame(frame)
     RegisterUnitWatch(frame)
     frames[unit] = frame
@@ -348,6 +356,7 @@ function ns.ApplyFrameType(unitType)
     for _, frame in pairs(frames) do
         if frame.MIUF_UnitType == unitType then ApplyFrameState(frame, state) end
     end
+    if not InCombatLockdown() and ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
 ns.ApplySize = ns.ApplyFrameType
 
@@ -357,6 +366,7 @@ function ns.PreviewFrameType(unitType, overrides)
     for _, frame in pairs(frames) do
         if frame.MIUF_UnitType == unitType then ApplyFrameState(frame, state) end
     end
+    if ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
 
 function ns.PreviewFrameSize(unitType, width, height)
@@ -369,7 +379,13 @@ function ns.SetFrameMoversLocked(locked)
     for _, frame in pairs(frames) do
         local mover = frame.MIUF_Mover
         if mover then
-            if locked or previewEnabled[frame.MIUF_UnitType] == false or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) then mover:Hide() else mover:Show() end
+            local unitType = frame.MIUF_UnitType
+            local groupOwnerMismatch = unitType == "party" and ns.partyFrameMoverOwner ~= frame
+            if locked or previewEnabled[unitType] == false or not ns.IsFrameTypeEnabled(unitType) or groupOwnerMismatch then
+                mover:Hide()
+            else
+                mover:Show()
+            end
         end
     end
 end
@@ -385,7 +401,7 @@ function ns.SetMoversLocked(locked)
 end
 
 function ns.ResetLayout()
-    for unit, frame in pairs(frames) do ApplyPosition(unit, frame) end
+    for _, frame in pairs(frames) do ApplyPosition(frame.MIUF_PositionKey or frame.MIUF_Unit, frame) end
     for unitType in pairs(ns.defaultSizes) do ns.ApplyFrameType(unitType) end
     ns.SetFrameMoversLocked(true)
 end
@@ -394,11 +410,21 @@ local spawned = false
 function ns.SpawnAllFrames()
     if spawned then return end
     spawned = true
+
     if ns.IsFrameTypeEnabled("player") then CreateNativeUnitFrame("player", "MIUF_Player") end
     if ns.IsFrameTypeEnabled("target") then CreateNativeUnitFrame("target", "MIUF_Target") end
     if ns.IsFrameTypeEnabled("focus") then CreateNativeUnitFrame("focus", "MIUF_Focus") end
     if ns.IsFrameTypeEnabled("pet") then CreateNativeUnitFrame("pet", "MIUF_Pet") end
     if ns.IsFrameTypeEnabled("targettarget") then CreateNativeUnitFrame("targettarget", "MIUF_TargetTarget") end
+
+    if ns.IsFrameTypeEnabled("party") then
+        for i = 1, 4 do
+            local unit = "party" .. i
+            CreateNativeUnitFrame(unit, "MIUF_Party" .. i, "party", "party1")
+        end
+    end
+
+    if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
     ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
@@ -409,6 +435,7 @@ combatWatcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
         ns.SetFrameMoversLocked(true)
     else
+        if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
         ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
     end
 end)
