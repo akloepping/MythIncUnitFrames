@@ -59,30 +59,6 @@ function ns.ApplyAuraPositions(unitType, auraType)
     end
 end
 
-function ns.PreviewAuraIconSize(unitType, auraType, iconSize)
-    if InCombatLockdown() or not ns.frames then return end
-    local field = AURA_FIELDS[auraType]
-    if not field then return end
-    iconSize = math.max(1, tonumber(iconSize) or 16)
-    local layout = ns.GetAuraLayout(unitType, auraType)
-    local spacing = (layout and layout.spacing) or 0
-    for _, frame in pairs(ns.frames) do
-        if frame.MIUF_UnitType == unitType then
-            local container = frame[field]
-            if container then
-                container.size = iconSize
-                if container.MIUF_GroupKey and container.SetAuraGroupLayout then
-                    container:SetAuraGroupLayout(container.MIUF_GroupKey, {
-                        elementWidth = iconSize, elementHeight = iconSize,
-                        elementSpacing = spacing, lineSpacing = spacing,
-                    })
-                end
-                if container.MIUF_Anchor then container.MIUF_Anchor:SetHeight((iconSize * 2) + spacing + 4) end
-            end
-        end
-    end
-end
-
 local function CreateAuraMover(self, auraType, container)
     local anchor = container and container.MIUF_Anchor
     if not anchor then return end
