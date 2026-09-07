@@ -97,23 +97,109 @@ local function UpdatePortrait(frame)
     if frame.Portrait and frame.MIUF_Unit then SetPortraitTexture(frame.Portrait, frame.MIUF_Unit) end
 end
 
+local function GetAutomaticHealthColor(unit)
+    if not unit or not UnitExists(unit) then return 0.45, 0.45, 0.45 end
+
+    if UnitIsPlayer(unit) then
+        local _, class = UnitClass(unit)
+        local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        if color then return color.r, color.g, color.b end
+    end
+
+    local reaction = UnitReaction(unit, "player")
+    if reaction then
+        if reaction <= 3 then return 0.80, 0.18, 0.18 end
+        if reaction == 4 then return 0.85, 0.75, 0.20 end
+        return 0.20, 0.75, 0.25
+    end
+
+    return 0.20, 0.75, 0.25
+end
+
+local POWER_COLORS = {
+    MANA = { 0.10, 0.35, 0.95 },
+    RAGE = { 0.90, 0.12, 0.12 },
+    FOCUS = { 0.95, 0.45, 0.10 },
+    ENERGY = { 0.95, 0.85, 0.10 },
+    RUNIC_POWER = { 0.10, 0.80, 0.95 },
+    LUNAR_POWER = { 0.25, 0.50, 1.00 },
+    INSANITY = { 0.55, 0.20, 0.80 },
+    FURY = { 0.75, 0.20, 1.00 },
+    MAELSTROM = { 0.10, 0.55, 1.00 },
+}
+
+local function GetAutomaticPowerColor(unit)
+    if not unit or not UnitExists(unit) then return 0.20, 0.40, 0.90 end
+    local _, powerToken = UnitPowerType(unit)
+    local color = powerToken and POWER_COLORS[powerToken]
+    if color then return color[1], color[2], color[3] end
+    return 0.20, 0.40, 0.90
+end
+
+local function ApplyColors(frame, appearance)
+    if appearance.healthColor == "automatic" then
+        local r, g, b = GetAutomaticHealthColor(frame.MIUF_Unit)
+        frame.Health:SetStatusBarColor(r, g, b, 1)
+    else
+        local healthEntry = ns.Media.healthColors[appearance.healthColor] or ns.Media.healthColors.green
+        local hc = healthEntry.rgb
+        frame.Health:SetStatusBarColor(hc[1], hc[2], hc[3], 1)
+    end
+
+    if appearance.powerColor == "automatic" then
+        local r, g, b = GetAutomaticPowerColor(frame.MIUF_Unit)
+        frame.Power:SetStatusBarColor(r, g, b, 1)
+    else
+        local powerEntry = ns.Media.powerColors[appearance.powerColor] or ns.Media.powerColors.blue
+        local pc = powerEntry.rgb
+        frame.Power:SetStatusBarColor(pc[1], pc[2], pc[3], 1)
+    end
+end
+
+local function UpdateRaidTarget(frame)
+    if not frame.RaidTargetIndicator then return end
+    local index = GetRaidTargetIndex(frame.MIUF_Unit)
+    if index then
+        SetRaidTargetIconTexture(frame.RaidTargetIndicator, index)
+        frame.RaidTargetIndicator:Show()
+    else
+        frame.RaidTargetIndicator:Hide()
+    end
+end
+
+local function UpdateRoleIndicator(frame)
+    local icon = frame.GroupRoleIndicator
+    if not icon then return end
+
+    local appearance = ns.GetAppearance(frame.MIUF_UnitType) or {}
+    if not appearance.showRoleIcon then
+        icon:Hide()
+        return
+    end
+
+    local role = UnitGroupRolesAssigned(frame.MIUF_Unit)
+    local atlas
+    if role == "TANK" then atlas = "groupfinder-icon-role-large-tank"
+    elseif role == "HEALER" then atlas = "groupfinder-icon-role-large-heal"
+    elseif role == "DAMAGER" then atlas = "groupfinder-icon-role-large-dps"
+    end
+
+    if atlas then
+        icon:SetAtlas(atlas, true)
+        icon:Show()
+    else
+        icon:Hide()
+    end
+end
+
 local function UpdateFrame(frame)
     UpdateHealth(frame)
     UpdatePower(frame)
     UpdateName(frame)
     UpdatePortrait(frame)
-end
-
-local function ApplyColors(frame, appearance)
-    local healthEntry = ns.Media.healthColors[appearance.healthColor]
-    if appearance.healthColor == "automatic" or not healthEntry then healthEntry = ns.Media.healthColors.green end
-    local hc = healthEntry.rgb
-    frame.Health:SetStatusBarColor(hc[1], hc[2], hc[3], 1)
-
-    local powerEntry = ns.Media.powerColors[appearance.powerColor]
-    if appearance.powerColor == "automatic" or not powerEntry then powerEntry = ns.Media.powerColors.blue end
-    local pc = powerEntry.rgb
-    frame.Power:SetStatusBarColor(pc[1], pc[2], pc[3], 1)
+    ApplyColors(frame, ns.GetAppearance(frame.MIUF_UnitType) or {})
+    UpdateRaidTarget(frame)
+    UpdateRoleIndicator(frame)
 end
 
 local function ApplyFrameState(frame, state)
@@ -176,6 +262,8 @@ local function ApplyFrameState(frame, state)
     frame.HealthText:SetShown(appearance.showHealthText)
 
     ApplyColors(frame, appearance)
+    UpdateRoleIndicator(frame)
+    UpdateRaidTarget(frame)
 end
 
 local function CreateMover(frame, labelText, positionKey)
@@ -273,6 +361,7 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     frame.__unit = unit
     frame:SetAttribute("unit", unit)
     frame:SetAttribute("*type1", "target")
+    frame:SetAttribute("*type2", "togglemenu")
     frame:RegisterForClicks("AnyUp")
     frame:SetSize(size.width, size.height)
 
@@ -316,13 +405,32 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     frame.Portrait = portrait
 
+    local raidTarget = frame:CreateTexture(nil, "OVERLAY")
+    raidTarget:SetSize(20, 20)
+    raidTarget:SetPoint("CENTER", frame, "TOP", 0, 2)
+    raidTarget:Hide()
+    frame.RaidTargetIndicator = raidTarget
+
+    if unitType == "player" or unitType == "party" then
+        local role = health:CreateTexture(nil, "OVERLAY")
+        role:SetSize(14, 14)
+        role:SetPoint("TOPLEFT", health, "TOPLEFT", 3, -3)
+        role:Hide()
+        frame.GroupRoleIndicator = role
+    end
+
     frame:RegisterUnitEvent("UNIT_HEALTH", unit)
     frame:RegisterUnitEvent("UNIT_MAXHEALTH", unit)
     frame:RegisterUnitEvent("UNIT_POWER_UPDATE", unit)
     frame:RegisterUnitEvent("UNIT_MAXPOWER", unit)
     frame:RegisterUnitEvent("UNIT_DISPLAYPOWER", unit)
     frame:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+    frame:RegisterUnitEvent("UNIT_FACTION", unit)
+    frame:RegisterUnitEvent("UNIT_CONNECTION", unit)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("RAID_TARGET_UPDATE")
+    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+    frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 
     if unit == "target" then
         frame:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -337,10 +445,20 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     frame:SetScript("OnEvent", function(self, event)
         if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
             UpdateHealth(self)
-        elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+        elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
             UpdatePower(self)
+        elseif event == "UNIT_DISPLAYPOWER" then
+            UpdatePower(self)
+            ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
         elseif event == "UNIT_NAME_UPDATE" then
             UpdateName(self)
+        elseif event == "RAID_TARGET_UPDATE" then
+            UpdateRaidTarget(self)
+        elseif event == "PLAYER_ROLES_ASSIGNED" or event == "GROUP_ROSTER_UPDATE" then
+            UpdateRoleIndicator(self)
+            ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
+        elseif event == "UNIT_FACTION" or event == "UNIT_CONNECTION" then
+            ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
         else
             UpdateFrame(self)
         end
