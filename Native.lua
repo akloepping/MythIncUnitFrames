@@ -311,7 +311,16 @@ local function CreateNativeUnitFrame(unit, name)
     frame:RegisterUnitEvent("UNIT_DISPLAYPOWER", unit)
     frame:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    if unit == "target" then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
+
+    if unit == "target" then
+        frame:RegisterEvent("PLAYER_TARGET_CHANGED")
+    elseif unit == "focus" then
+        frame:RegisterEvent("PLAYER_FOCUS_CHANGED")
+    elseif unit == "pet" then
+        frame:RegisterUnitEvent("UNIT_PET", "player")
+    elseif unit == "targettarget" then
+        frame:RegisterUnitEvent("UNIT_TARGET", "target")
+    end
 
     frame:SetScript("OnEvent", function(self, event)
         if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
@@ -387,6 +396,9 @@ function ns.SpawnAllFrames()
     spawned = true
     if ns.IsFrameTypeEnabled("player") then CreateNativeUnitFrame("player", "MIUF_Player") end
     if ns.IsFrameTypeEnabled("target") then CreateNativeUnitFrame("target", "MIUF_Target") end
+    if ns.IsFrameTypeEnabled("focus") then CreateNativeUnitFrame("focus", "MIUF_Focus") end
+    if ns.IsFrameTypeEnabled("pet") then CreateNativeUnitFrame("pet", "MIUF_Pet") end
+    if ns.IsFrameTypeEnabled("targettarget") then CreateNativeUnitFrame("targettarget", "MIUF_TargetTarget") end
     ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
