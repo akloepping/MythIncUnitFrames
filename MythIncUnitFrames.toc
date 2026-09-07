@@ -2,7 +2,7 @@
 ## Title: MythInc Unit Frames
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
-## Version: 0.8.17-alpha
+## Version: 0.9.0
 ## RequiredDeps: oUF
 ## SavedVariables: MythIncUnitFramesDB
 ## X-oUF: MythIncUnitFrames
