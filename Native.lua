@@ -203,7 +203,11 @@ local function CreateMover(frame, labelText, positionKey)
         frame:StopMovingOrSizing()
         if not InCombatLockdown() then
             SaveMoverPosition(frame, positionKey)
-            if frame.MIUF_UnitType == "party" and ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
+            if frame.MIUF_UnitType == "party" and ns.ApplyPartyLayout then
+                ns.ApplyPartyLayout()
+            elseif frame.MIUF_UnitType == "boss" and ns.ApplyBossLayout then
+                ns.ApplyBossLayout()
+            end
         end
     end)
 
@@ -342,7 +346,8 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
         end
     end)
 
-    CreateMover(frame, unitType == "party" and unit or unitType, positionKey)
+    local moverLabel = (unitType == "party" or unitType == "boss") and unit or unitType
+    CreateMover(frame, moverLabel, positionKey)
     ApplyPosition(positionKey, frame)
     ApplyFrameState(frame, BuildFrameState(unitType))
     UpdateFrame(frame)
@@ -385,7 +390,8 @@ function ns.SetFrameMoversLocked(locked)
         if mover then
             local unitType = frame.MIUF_UnitType
             local groupOwnerMismatch = unitType == "party" and ns.partyFrameMoverOwner ~= frame
-            if locked or previewEnabled[unitType] == false or not ns.IsFrameTypeEnabled(unitType) or groupOwnerMismatch then
+            local bossOwnerMismatch = unitType == "boss" and frame.MIUF_Unit ~= "boss1"
+            if locked or previewEnabled[unitType] == false or not ns.IsFrameTypeEnabled(unitType) or groupOwnerMismatch or bossOwnerMismatch then
                 mover:Hide()
             else
                 mover:Show()
@@ -432,7 +438,15 @@ function ns.SpawnAllFrames()
         frames.partyplayer = partyPlayer
     end
 
+    if ns.IsFrameTypeEnabled("boss") then
+        for i = 1, 5 do
+            local unit = "boss" .. i
+            CreateNativeUnitFrame(unit, "MIUF_Boss" .. i, "boss", "boss1")
+        end
+    end
+
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
+    if ns.ApplyBossLayout then ns.ApplyBossLayout() end
     ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
@@ -444,6 +458,7 @@ combatWatcher:SetScript("OnEvent", function(_, event)
         ns.SetFrameMoversLocked(true)
     else
         if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
+        if ns.ApplyBossLayout then ns.ApplyBossLayout() end
         ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
     end
 end)
