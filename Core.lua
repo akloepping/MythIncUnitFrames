@@ -69,7 +69,7 @@ end
 
 local function CopyTable(source)
     local result = {}
-    for key, value in pairs(source) do
+    for key, value in pairs(source or {}) do
         result[key] = type(value) == "table" and CopyTable(value) or value
     end
     return result
@@ -87,39 +87,125 @@ local function FillMissing(dest, defaults)
     return dest
 end
 
-local function InitializeDatabase()
-    if type(MythIncUnitFramesDB) ~= "table" then MythIncUnitFramesDB = {} end
-    MythIncUnitFramesDB.positions = FillMissing(MythIncUnitFramesDB.positions, defaultPositions)
-    MythIncUnitFramesDB.sizes = FillMissing(MythIncUnitFramesDB.sizes, defaultSizes)
-    MythIncUnitFramesDB.barLayout = FillMissing(MythIncUnitFramesDB.barLayout, defaultBarLayout)
-    MythIncUnitFramesDB.appearance = FillMissing(MythIncUnitFramesDB.appearance, defaultAppearance)
-    MythIncUnitFramesDB.auraLayout = FillMissing(MythIncUnitFramesDB.auraLayout, defaultAuraLayout)
-    MythIncUnitFramesDB.enabled = FillMissing(MythIncUnitFramesDB.enabled, defaultEnabled)
-    MythIncUnitFramesDB.groupLayout = FillMissing(MythIncUnitFramesDB.groupLayout, defaultGroupLayout)
-    if type(MythIncUnitFramesDB.trackedBuffs) ~= "table" then MythIncUnitFramesDB.trackedBuffs = {} end
-    if type(MythIncUnitFramesDB.seenBuffs) ~= "table" then MythIncUnitFramesDB.seenBuffs = {} end
+local function NewDefaultProfile()
+    return {
+        positions = CopyTable(defaultPositions),
+        sizes = CopyTable(defaultSizes),
+        barLayout = CopyTable(defaultBarLayout),
+        appearance = CopyTable(defaultAppearance),
+        auraLayout = CopyTable(defaultAuraLayout),
+        enabled = CopyTable(defaultEnabled),
+        groupLayout = CopyTable(defaultGroupLayout),
+        trackedBuffs = {},
+        frameLocked = true,
+        auraLocked = true,
+    }
+end
 
-    local legacyLocked = type(MythIncUnitFramesDB.locked) == "boolean" and MythIncUnitFramesDB.locked or true
-    if type(MythIncUnitFramesDB.frameLocked) ~= "boolean" then MythIncUnitFramesDB.frameLocked = legacyLocked end
-    if type(MythIncUnitFramesDB.auraLocked) ~= "boolean" then MythIncUnitFramesDB.auraLocked = legacyLocked end
-    MythIncUnitFramesDB.locked = nil
+local function NormalizeProfile(profile)
+    if type(profile) ~= "table" then profile = {} end
+    profile.positions = FillMissing(profile.positions, defaultPositions)
+    profile.sizes = FillMissing(profile.sizes, defaultSizes)
+    profile.barLayout = FillMissing(profile.barLayout, defaultBarLayout)
+    profile.appearance = FillMissing(profile.appearance, defaultAppearance)
+    profile.auraLayout = FillMissing(profile.auraLayout, defaultAuraLayout)
+    profile.enabled = FillMissing(profile.enabled, defaultEnabled)
+    profile.groupLayout = FillMissing(profile.groupLayout, defaultGroupLayout)
+    if type(profile.trackedBuffs) ~= "table" then profile.trackedBuffs = {} end
 
-    if type(MythIncUnitFramesDB.partyRoleIconsEnabled) == "boolean" then
-        MythIncUnitFramesDB.appearance.party.showRoleIcon = MythIncUnitFramesDB.partyRoleIconsEnabled
-        MythIncUnitFramesDB.partyRoleIconsEnabled = nil
+    local legacyLocked = type(profile.locked) == "boolean" and profile.locked or true
+    if type(profile.frameLocked) ~= "boolean" then profile.frameLocked = legacyLocked end
+    if type(profile.auraLocked) ~= "boolean" then profile.auraLocked = legacyLocked end
+    profile.locked = nil
+
+    if type(profile.partyRoleIconsEnabled) == "boolean" then
+        profile.appearance.party.showRoleIcon = profile.partyRoleIconsEnabled
+        profile.partyRoleIconsEnabled = nil
     end
 
-    -- Text positioning is now explicit X/Y movement instead of the old
-    -- top/center/bottom selectors. FillMissing above supplies centered defaults;
-    -- remove the obsolete keys so SavedVariables stay coherent going forward.
-    for _, appearance in pairs(MythIncUnitFramesDB.appearance) do
+    for _, appearance in pairs(profile.appearance) do
         if type(appearance) == "table" then
             appearance.nameVAlign = nil
             appearance.healthVAlign = nil
         end
     end
 
-    MythIncUnitFramesDB.version = 17
+    return profile
+end
+
+local PROFILE_FIELDS = {
+    "positions", "sizes", "barLayout", "appearance", "auraLayout",
+    "enabled", "groupLayout", "trackedBuffs", "frameLocked", "auraLocked",
+    "locked", "partyRoleIconsEnabled",
+}
+
+local function GetCharacterKey()
+    local name, realm
+    if UnitFullName then name, realm = UnitFullName("player") end
+    name = name or (UnitName and UnitName("player")) or "Unknown"
+    realm = realm or (GetRealmName and GetRealmName()) or "Unknown Realm"
+    if realm == "" then realm = (GetRealmName and GetRealmName()) or "Unknown Realm" end
+    return tostring(name) .. " - " .. tostring(realm)
+end
+
+local function MigrateLegacyDatabase(db)
+    if type(db.profiles) == "table" and next(db.profiles) then return end
+
+    local profile = {}
+    local hadLegacy = false
+    for _, field in ipairs(PROFILE_FIELDS) do
+        if db[field] ~= nil then
+            profile[field] = db[field]
+            hadLegacy = true
+        end
+    end
+
+    db.profiles = {}
+    db.profiles.Default = NormalizeProfile(hadLegacy and profile or NewDefaultProfile())
+
+    for _, field in ipairs(PROFILE_FIELDS) do db[field] = nil end
+end
+
+local function InitializeDatabase()
+    if type(MythIncUnitFramesDB) ~= "table" then MythIncUnitFramesDB = {} end
+    local db = MythIncUnitFramesDB
+
+    MigrateLegacyDatabase(db)
+    if type(db.profiles) ~= "table" then db.profiles = {} end
+    if type(db.profiles.Default) ~= "table" then db.profiles.Default = NewDefaultProfile() end
+    for name, profile in pairs(db.profiles) do db.profiles[name] = NormalizeProfile(profile) end
+
+    if type(db.profileKeys) ~= "table" then db.profileKeys = {} end
+    if type(db.seenBuffs) ~= "table" then db.seenBuffs = {} end
+
+    local characterKey = GetCharacterKey()
+    local active = db.profileKeys[characterKey]
+    if type(active) ~= "string" or type(db.profiles[active]) ~= "table" then
+        db.profileKeys[characterKey] = "Default"
+    end
+
+    db.version = 18
+end
+
+local function ActiveProfile()
+    InitializeDatabase()
+    local db = MythIncUnitFramesDB
+    local name = db.profileKeys[GetCharacterKey()] or "Default"
+    local profile = db.profiles[name]
+    if type(profile) ~= "table" then
+        name = "Default"
+        db.profileKeys[GetCharacterKey()] = name
+        profile = db.profiles.Default
+    end
+    return profile, name
+end
+
+local function NormalizeProfileName(name)
+    if type(name) ~= "string" then return nil end
+    name = name:match("^%s*(.-)%s*$")
+    if not name or name == "" then return nil end
+    if #name > 40 then name = name:sub(1, 40) end
+    return name
 end
 
 ns.defaultPositions = defaultPositions
@@ -132,75 +218,136 @@ ns.defaultGroupLayout = defaultGroupLayout
 ns.CopyTable = CopyTable
 ns.InitializeDatabase = InitializeDatabase
 
-function ns.GetPosition(unit) InitializeDatabase(); return MythIncUnitFramesDB.positions[unit] or defaultPositions[unit] end
-function ns.SavePosition(unit, point, relativePoint, x, y)
+function ns.GetCharacterProfileKey() InitializeDatabase(); return GetCharacterKey() end
+function ns.GetActiveProfileName() local _, name = ActiveProfile(); return name end
+function ns.GetProfileNames()
     InitializeDatabase()
-    MythIncUnitFramesDB.positions[unit] = {
+    local names = {}
+    for name in pairs(MythIncUnitFramesDB.profiles) do names[#names + 1] = name end
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
+end
+function ns.ProfileExists(name)
+    InitializeDatabase(); name = NormalizeProfileName(name)
+    return name ~= nil and type(MythIncUnitFramesDB.profiles[name]) == "table"
+end
+function ns.CreateProfile(name)
+    InitializeDatabase(); name = NormalizeProfileName(name)
+    if not name then return false, "Enter a profile name." end
+    if MythIncUnitFramesDB.profiles[name] then return false, "A profile with that name already exists." end
+    MythIncUnitFramesDB.profiles[name] = NewDefaultProfile()
+    return true, name
+end
+function ns.CopyProfile(sourceName, newName)
+    InitializeDatabase(); sourceName = NormalizeProfileName(sourceName); newName = NormalizeProfileName(newName)
+    if not sourceName or not MythIncUnitFramesDB.profiles[sourceName] then return false, "Source profile was not found." end
+    if not newName then return false, "Enter a profile name." end
+    if MythIncUnitFramesDB.profiles[newName] then return false, "A profile with that name already exists." end
+    MythIncUnitFramesDB.profiles[newName] = NormalizeProfile(CopyTable(MythIncUnitFramesDB.profiles[sourceName]))
+    return true, newName
+end
+function ns.RenameProfile(oldName, newName)
+    InitializeDatabase(); oldName = NormalizeProfileName(oldName); newName = NormalizeProfileName(newName)
+    if not oldName or not MythIncUnitFramesDB.profiles[oldName] then return false, "Profile was not found." end
+    if oldName == "Default" then return false, "The Default profile cannot be renamed." end
+    if not newName then return false, "Enter a new profile name." end
+    if MythIncUnitFramesDB.profiles[newName] then return false, "A profile with that name already exists." end
+
+    MythIncUnitFramesDB.profiles[newName] = MythIncUnitFramesDB.profiles[oldName]
+    MythIncUnitFramesDB.profiles[oldName] = nil
+    for characterKey, profileName in pairs(MythIncUnitFramesDB.profileKeys) do
+        if profileName == oldName then MythIncUnitFramesDB.profileKeys[characterKey] = newName end
+    end
+    return true, newName
+end
+function ns.DeleteProfile(name)
+    InitializeDatabase(); name = NormalizeProfileName(name)
+    if not name or not MythIncUnitFramesDB.profiles[name] then return false, "Profile was not found." end
+    if name == "Default" then return false, "The Default profile cannot be deleted." end
+    if name == ns.GetActiveProfileName() then return false, "Switch away from this profile before deleting it." end
+
+    MythIncUnitFramesDB.profiles[name] = nil
+    for characterKey, profileName in pairs(MythIncUnitFramesDB.profileKeys) do
+        if profileName == name then MythIncUnitFramesDB.profileKeys[characterKey] = "Default" end
+    end
+    return true
+end
+function ns.SetActiveProfile(name)
+    InitializeDatabase(); name = NormalizeProfileName(name)
+    if not name or not MythIncUnitFramesDB.profiles[name] then return false, "Profile was not found." end
+    MythIncUnitFramesDB.profileKeys[GetCharacterKey()] = name
+    return true, name
+end
+
+function ns.GetPosition(unit) local profile = ActiveProfile(); return profile.positions[unit] or defaultPositions[unit] end
+function ns.SavePosition(unit, point, relativePoint, x, y)
+    local profile = ActiveProfile()
+    profile.positions[unit] = {
         point = point, relativePoint = relativePoint,
         x = math.floor((x or 0) + 0.5), y = math.floor((y or 0) + 0.5),
     }
 end
 
-function ns.GetSize(unitType) InitializeDatabase(); return MythIncUnitFramesDB.sizes[unitType] or defaultSizes[unitType] end
+function ns.GetSize(unitType) local profile = ActiveProfile(); return profile.sizes[unitType] or defaultSizes[unitType] end
 function ns.SaveSize(unitType, width, height)
-    InitializeDatabase()
-    MythIncUnitFramesDB.sizes[unitType] = { width = math.floor(width + 0.5), height = math.floor(height + 0.5) }
+    local profile = ActiveProfile()
+    profile.sizes[unitType] = { width = math.floor(width + 0.5), height = math.floor(height + 0.5) }
 end
 
-function ns.GetPowerPercent(unitType) InitializeDatabase(); return MythIncUnitFramesDB.barLayout[unitType].powerPercent end
+function ns.GetPowerPercent(unitType) local profile = ActiveProfile(); return profile.barLayout[unitType].powerPercent end
 function ns.SavePowerPercent(unitType, percent)
-    InitializeDatabase(); MythIncUnitFramesDB.barLayout[unitType].powerPercent = math.floor(percent + 0.5)
+    local profile = ActiveProfile(); profile.barLayout[unitType].powerPercent = math.floor(percent + 0.5)
 end
 
-function ns.GetAppearance(unitType) InitializeDatabase(); return MythIncUnitFramesDB.appearance[unitType] end
+function ns.GetAppearance(unitType) local profile = ActiveProfile(); return profile.appearance[unitType] end
 function ns.SaveAppearance(unitType, values)
-    InitializeDatabase()
-    local current = MythIncUnitFramesDB.appearance[unitType]
+    local profile = ActiveProfile()
+    local current = profile.appearance[unitType]
     for key, value in pairs(values) do current[key] = value end
 end
 
-function ns.IsFrameTypeEnabled(unitType) InitializeDatabase(); return MythIncUnitFramesDB.enabled[unitType] ~= false end
+function ns.IsFrameTypeEnabled(unitType) local profile = ActiveProfile(); return profile.enabled[unitType] ~= false end
 function ns.SetFrameTypeEnabled(unitType, enabled)
-    InitializeDatabase(); MythIncUnitFramesDB.enabled[unitType] = enabled and true or false
+    local profile = ActiveProfile(); profile.enabled[unitType] = enabled and true or false
 end
 
-function ns.GetGroupLayout(unitType) InitializeDatabase(); return MythIncUnitFramesDB.groupLayout[unitType] end
+function ns.GetGroupLayout(unitType) local profile = ActiveProfile(); return profile.groupLayout[unitType] end
 function ns.SaveGroupLayout(unitType, values)
-    InitializeDatabase()
-    local current = MythIncUnitFramesDB.groupLayout[unitType]
+    local profile = ActiveProfile()
+    local current = profile.groupLayout[unitType]
     if type(current) ~= "table" then
         local defaults = defaultGroupLayout[unitType]
         current = defaults and CopyTable(defaults) or {}
-        MythIncUnitFramesDB.groupLayout[unitType] = current
+        profile.groupLayout[unitType] = current
     end
     for key, value in pairs(values) do current[key] = value end
 end
 
 function ns.GetAuraLayout(unitType, auraType)
-    InitializeDatabase()
-    local frameAuras = MythIncUnitFramesDB.auraLayout[unitType]
+    local profile = ActiveProfile()
+    local frameAuras = profile.auraLayout[unitType]
     return frameAuras and frameAuras[auraType] or nil
 end
 function ns.SaveAuraLayout(unitType, auraType, values)
-    InitializeDatabase()
-    if not MythIncUnitFramesDB.auraLayout[unitType] then MythIncUnitFramesDB.auraLayout[unitType] = {} end
-    local current = MythIncUnitFramesDB.auraLayout[unitType][auraType]
+    local profile = ActiveProfile()
+    if not profile.auraLayout[unitType] then profile.auraLayout[unitType] = {} end
+    local current = profile.auraLayout[unitType][auraType]
     if type(current) ~= "table" then
         local defaults = defaultAuraLayout[unitType] and defaultAuraLayout[unitType][auraType]
         current = defaults and CopyTable(defaults) or {}
-        MythIncUnitFramesDB.auraLayout[unitType][auraType] = current
+        profile.auraLayout[unitType][auraType] = current
     end
     for key, value in pairs(values) do current[key] = value end
 end
 
-function ns.GetTrackedBuffs() InitializeDatabase(); return MythIncUnitFramesDB.trackedBuffs end
+function ns.GetTrackedBuffs() local profile = ActiveProfile(); return profile.trackedBuffs end
 function ns.SetTrackedBuffs(values)
-    InitializeDatabase(); MythIncUnitFramesDB.trackedBuffs = type(values) == "table" and CopyTable(values) or {}
+    local profile = ActiveProfile(); profile.trackedBuffs = type(values) == "table" and CopyTable(values) or {}
 end
 function ns.GetTrackedBuffSpellIDs()
-    InitializeDatabase()
+    local profile = ActiveProfile()
     local ids = {}
-    for spellID in pairs(MythIncUnitFramesDB.trackedBuffs) do
+    for spellID in pairs(profile.trackedBuffs) do
         local id = tonumber(spellID)
         if id then ids[id] = true end
     end
@@ -219,52 +366,44 @@ function ns.RecordSeenBuff(spellID, name, icon)
 end
 function ns.ClearSeenBuffs() InitializeDatabase(); MythIncUnitFramesDB.seenBuffs = {} end
 
-function ns.AreFrameMoversLocked() InitializeDatabase(); return MythIncUnitFramesDB.frameLocked end
-function ns.SetFrameMoversLockedState(locked) InitializeDatabase(); MythIncUnitFramesDB.frameLocked = locked and true or false end
-function ns.AreAuraMoversLocked() InitializeDatabase(); return MythIncUnitFramesDB.auraLocked end
-function ns.SetAuraMoversLockedState(locked) InitializeDatabase(); MythIncUnitFramesDB.auraLocked = locked and true or false end
+function ns.AreFrameMoversLocked() local profile = ActiveProfile(); return profile.frameLocked end
+function ns.SetFrameMoversLockedState(locked) local profile = ActiveProfile(); profile.frameLocked = locked and true or false end
+function ns.AreAuraMoversLocked() local profile = ActiveProfile(); return profile.auraLocked end
+function ns.SetAuraMoversLockedState(locked) local profile = ActiveProfile(); profile.auraLocked = locked and true or false end
 function ns.IsLocked() return ns.AreFrameMoversLocked() end
 function ns.SetLocked(locked) ns.SetFrameMoversLockedState(locked) end
 
 function ns.ResetAllSettings()
     InitializeDatabase()
-    MythIncUnitFramesDB.positions = CopyTable(defaultPositions)
-    MythIncUnitFramesDB.sizes = CopyTable(defaultSizes)
-    MythIncUnitFramesDB.barLayout = CopyTable(defaultBarLayout)
-    MythIncUnitFramesDB.appearance = CopyTable(defaultAppearance)
-    MythIncUnitFramesDB.auraLayout = CopyTable(defaultAuraLayout)
-    MythIncUnitFramesDB.enabled = CopyTable(defaultEnabled)
-    MythIncUnitFramesDB.groupLayout = CopyTable(defaultGroupLayout)
-    MythIncUnitFramesDB.trackedBuffs = {}
+    local name = ns.GetActiveProfileName()
+    MythIncUnitFramesDB.profiles[name] = NewDefaultProfile()
     MythIncUnitFramesDB.seenBuffs = {}
-    MythIncUnitFramesDB.frameLocked = true
-    MythIncUnitFramesDB.auraLocked = true
 end
 
 function ns.ResetFrameType(unitType)
-    InitializeDatabase()
+    local profile = ActiveProfile()
     if defaultSizes[unitType] then
-        MythIncUnitFramesDB.sizes[unitType] = CopyTable(defaultSizes[unitType])
-        MythIncUnitFramesDB.barLayout[unitType] = CopyTable(defaultBarLayout[unitType])
-        MythIncUnitFramesDB.appearance[unitType] = CopyTable(defaultAppearance[unitType])
-        MythIncUnitFramesDB.auraLayout[unitType] = CopyTable(defaultAuraLayout[unitType])
+        profile.sizes[unitType] = CopyTable(defaultSizes[unitType])
+        profile.barLayout[unitType] = CopyTable(defaultBarLayout[unitType])
+        profile.appearance[unitType] = CopyTable(defaultAppearance[unitType])
+        profile.auraLayout[unitType] = CopyTable(defaultAuraLayout[unitType])
     end
 end
 
 function ns.ResetFrameAppearance(unitType)
-    InitializeDatabase()
+    local profile = ActiveProfile()
     if defaultSizes[unitType] then
-        MythIncUnitFramesDB.sizes[unitType] = CopyTable(defaultSizes[unitType])
-        MythIncUnitFramesDB.barLayout[unitType] = CopyTable(defaultBarLayout[unitType])
-        MythIncUnitFramesDB.appearance[unitType] = CopyTable(defaultAppearance[unitType])
-        if defaultGroupLayout[unitType] then MythIncUnitFramesDB.groupLayout[unitType] = CopyTable(defaultGroupLayout[unitType]) end
+        profile.sizes[unitType] = CopyTable(defaultSizes[unitType])
+        profile.barLayout[unitType] = CopyTable(defaultBarLayout[unitType])
+        profile.appearance[unitType] = CopyTable(defaultAppearance[unitType])
+        if defaultGroupLayout[unitType] then profile.groupLayout[unitType] = CopyTable(defaultGroupLayout[unitType]) end
     end
 end
 
 function ns.ResetAuraLayout(unitType, auraType)
-    InitializeDatabase()
+    local profile = ActiveProfile()
     local defaults = defaultAuraLayout[unitType] and defaultAuraLayout[unitType][auraType]
-    if defaults then MythIncUnitFramesDB.auraLayout[unitType][auraType] = CopyTable(defaults) end
+    if defaults then profile.auraLayout[unitType][auraType] = CopyTable(defaults) end
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -273,7 +412,7 @@ eventFrame:SetScript("OnEvent", function(_, event, addon)
     if event ~= "ADDON_LOADED" or addon ~= ADDON_NAME then return end
     InitializeDatabase()
     if ns.SpawnAllFrames then ns.SpawnAllFrames() end
-    print("|cff66ccffMythInc Unit Frames|r " .. ns.version .. " loaded.")
+    print("|cff66ccffMythInc Unit Frames|r " .. ns.version .. " loaded. Profile: " .. ns.GetActiveProfileName())
 end)
 
 local function PrintHelp()
@@ -284,7 +423,7 @@ local function PrintHelp()
     print("/miuf auraunlock      - show aura movers")
     print("/miuf auralock        - hide aura movers")
     print("/miuf size <frame> <width> <height>")
-    print("/miuf reset           - restore all defaults")
+    print("/miuf reset           - restore current profile defaults")
     print("/miuf version         - show addon version")
 end
 
@@ -352,7 +491,7 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         ns.ResetAllSettings()
         if ns.ResetLayout then ns.ResetLayout() end
         if ns.RefreshConfig then ns.RefreshConfig() end
-        print("|cff66ccffMythInc Unit Frames|r settings reset to defaults.")
+        print("|cff66ccffMythInc Unit Frames|r current profile reset to defaults.")
         return
     end
     PrintHelp()
