@@ -15,7 +15,7 @@ local GROUP_ORIENTATION_NAMES = { VERTICAL="Vertical", HORIZONTAL="Horizontal" }
 local GROUP_ORIENTATION_ORDER = { "VERTICAL", "HORIZONTAL" }
 
 local selectedType, selectedAura, selectedPage = "player", "buffs", "frames"
-local config, framesPage, aurasPage, trackedBuffWindow
+local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
@@ -23,11 +23,14 @@ local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockBu
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton
 local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
-local frameTab, auraTab
+local frameTab, auraTab, profileTab
 local partyLayoutPanel, partyOrientationButton, partyDirectionButton, partySpacingSlider, partyIncludePlayerButton
 local frameButtons, frameEnableChecks, auraButtons = {}, {}, {}
 local buffFilterPanel, seenBuffButtons, trackedBuffButtons = nil, {}, {}
 local manageTrackedButton
+local profileCurrentLabel, profileCharacterLabel, profileNameBox, profileActionStatus
+local profileButtons = {}
+local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local pendingEnabled, pendingAuraLayouts = {}, {}
@@ -308,21 +311,57 @@ local function RefreshTrackedWindow()
     for i,b in ipairs(seenBuffButtons) do Configure(b,seenList[i],false) end; for i,b in ipairs(trackedBuffButtons) do Configure(b,trackedList[i],true) end
 end
 
+local function SetProfileStatus(text, errorState)
+    if not profileActionStatus then return end
+    profileActionStatus:SetText(text or "")
+    profileActionStatus:SetTextColor(errorState and 1 or 0.65, errorState and 0.35 or 0.78, errorState and 0.35 or 0.88)
+end
+
+local function RefreshProfilesControls()
+    if not profilesPage then return end
+    local active = ns.GetActiveProfileName()
+    local names = ns.GetProfileNames()
+    if not selectedProfileName or not ns.ProfileExists(selectedProfileName) then selectedProfileName = active end
+    profileCurrentLabel:SetText("Current profile: |cff66ccff"..active.."|r")
+    profileCharacterLabel:SetText("Character: "..ns.GetCharacterProfileKey())
+    for i,button in ipairs(profileButtons) do
+        local name=names[i]
+        if name then
+            button.ProfileName=name
+            button:SetText((name==active and "* " or "")..name)
+            button:SetEnabled(name~=selectedProfileName)
+            button:Show()
+        else
+            button.ProfileName=nil
+            button:Hide()
+        end
+    end
+end
+
 function ns.RefreshConfig()
     if not config or not config:IsShown() then return end
     refreshing=true; CopyWorking()
     for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(GetPendingEnabled(unitType)) end
-    selectedLabel:SetText(DISPLAY_NAMES[selectedType].." Settings"); if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end; auraTab:SetShown(selectedType~="boss")
-    framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras")
+    if selectedPage=="profiles" then
+        selectedLabel:SetText("Profiles")
+    else
+        selectedLabel:SetText(DISPLAY_NAMES[selectedType].." Settings")
+    end
+    if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end
+    auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
+    framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
+    frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
         local size=ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
-    else
+    elseif selectedPage=="auras" then
         for auraType,button in pairs(auraButtons) do button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
         RefreshAuraControls(); RefreshTrackedWindow(); auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
+    else
+        RefreshProfilesControls()
     end
-    statusText:SetText(InCombatLockdown() and "Changes are disabled during combat." or (hasPendingChanges and "Pending protected changes are waiting. Click Apply Changes when ready." or "Appearance changes use Apply Frame; protected changes use Apply Changes."))
+    statusText:SetText(InCombatLockdown() and "Changes are disabled during combat." or (hasPendingChanges and "Pending protected changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Appearance changes use Apply Frame; protected changes use Apply Changes.")))
     refreshing=false
     if selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
@@ -353,6 +392,14 @@ local function ApplyPendingChanges()
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true); ReloadUI()
 end
 
+local function SelectPage(page)
+    if fontMenu then fontMenu:Hide() end
+    if textureMenu then textureMenu:Hide() end
+    if page=="frames" then RestoreAuraPreview() elseif page=="auras" then RestoreFramePreview(); ChooseAvailableAura() else RestoreFramePreview(); RestoreAuraPreview() end
+    selectedPage=page
+    ns.RefreshConfig()
+end
+
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
@@ -360,8 +407,9 @@ local function CreateShell()
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
-    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreAuraPreview(); selectedPage="frames"; ns.RefreshConfig() end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); selectedPage="auras"; ChooseAvailableAura(); ns.RefreshConfig() end)
+    frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() SelectPage("frames") end)
+    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() SelectPage("auras") end)
+    profileTab=MakeButton(config,"Profiles",110,28); profileTab:SetPoint("LEFT",auraTab,"RIGHT",8,0); profileTab:SetScript("OnClick",function() SelectPage("profiles") end)
     local prev
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
@@ -373,7 +421,7 @@ local function CreateShell()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
-            selectedType=unitType; ns.RefreshConfig()
+            selectedType=unitType; if selectedPage=="profiles" then selectedPage="frames" end; ns.RefreshConfig()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyPendingChanges)
@@ -477,8 +525,77 @@ local function CreateAurasPage()
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
+local function CreateProfilesPage()
+    profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",160,-80); profilesPage:SetPoint("BOTTOMRIGHT",-10,50)
+    local section=MakeSection(profilesPage,"Profile Management",690,430); section:SetPoint("TOPLEFT",20,-62)
+
+    profileCurrentLabel=section:CreateFontString(nil,"OVERLAY"); profileCurrentLabel:SetFont(FONT,14,"OUTLINE"); profileCurrentLabel:SetPoint("TOPLEFT",18,-38)
+    profileCharacterLabel=section:CreateFontString(nil,"OVERLAY"); profileCharacterLabel:SetFont(FONT,10,"OUTLINE"); profileCharacterLabel:SetPoint("TOPLEFT",18,-62); profileCharacterLabel:SetTextColor(0.7,0.76,0.82)
+
+    local listTitle=section:CreateFontString(nil,"OVERLAY"); listTitle:SetFont(FONT,11,"OUTLINE"); listTitle:SetPoint("TOPLEFT",18,-96); listTitle:SetText("Profiles")
+    for i=1,10 do
+        local b=MakeButton(section,"",220,26); b:SetPoint("TOPLEFT",18,-118-((i-1)*29)); b:SetScript("OnClick",function(self)
+            selectedProfileName=self.ProfileName
+            SetProfileStatus("Selected "..selectedProfileName..". Use Profile will switch this character and reload the UI.",false)
+            RefreshProfilesControls()
+        end); profileButtons[i]=b
+    end
+
+    local nameLabel=section:CreateFontString(nil,"OVERLAY"); nameLabel:SetFont(FONT,11,"OUTLINE"); nameLabel:SetPoint("TOPLEFT",275,-96); nameLabel:SetText("Profile name")
+    profileNameBox=CreateFrame("EditBox",nil,section,"InputBoxTemplate"); profileNameBox:SetSize(250,24); profileNameBox:SetPoint("TOPLEFT",275,-118); profileNameBox:SetAutoFocus(false); profileNameBox:SetMaxLetters(40)
+    profileNameBox:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
+    profileNameBox:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
+
+    local use=MakeButton(section,"Use Profile",120,28); use:SetPoint("TOPLEFT",275,-158); use:SetScript("OnClick",function()
+        if InCombatLockdown() then SetProfileStatus("Profiles cannot be switched during combat.",true); return end
+        if hasPendingChanges then SetProfileStatus("Apply the pending protected changes before switching profiles.",true); return end
+        local target=selectedProfileName or ns.GetActiveProfileName()
+        if target==ns.GetActiveProfileName() then SetProfileStatus(target.." is already active.",false); return end
+        local ok,msg=ns.SetActiveProfile(target)
+        if not ok then SetProfileStatus(msg,true); return end
+        ReloadUI()
+    end)
+
+    local create=MakeButton(section,"Create New",120,28); create:SetPoint("LEFT",use,"RIGHT",8,0); create:SetScript("OnClick",function()
+        if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
+        local ok,msg=ns.CreateProfile(profileNameBox:GetText())
+        if not ok then SetProfileStatus(msg,true); return end
+        selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Created "..msg.." from defaults.",false); RefreshProfilesControls()
+    end)
+
+    local copy=MakeButton(section,"Copy Current",120,28); copy:SetPoint("TOPLEFT",275,-198); copy:SetScript("OnClick",function()
+        if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
+        local ok,msg=ns.CopyProfile(ns.GetActiveProfileName(),profileNameBox:GetText())
+        if not ok then SetProfileStatus(msg,true); return end
+        selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Copied current profile to "..msg..".",false); RefreshProfilesControls()
+    end)
+
+    local rename=MakeButton(section,"Rename Selected",120,28); rename:SetPoint("LEFT",copy,"RIGHT",8,0); rename:SetScript("OnClick",function()
+        if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
+        local source=selectedProfileName or ns.GetActiveProfileName()
+        local ok,msg=ns.RenameProfile(source,profileNameBox:GetText())
+        if not ok then SetProfileStatus(msg,true); return end
+        selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Profile renamed to "..msg..".",false); RefreshProfilesControls()
+    end)
+
+    local delete=MakeButton(section,"Delete Selected",120,28); delete:SetPoint("TOPLEFT",275,-238); delete:SetScript("OnClick",function()
+        if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
+        local source=selectedProfileName
+        if not source then SetProfileStatus("Select a profile first.",true); return end
+        local ok,msg=ns.DeleteProfile(source)
+        if not ok then SetProfileStatus(msg,true); return end
+        selectedProfileName=ns.GetActiveProfileName(); SetProfileStatus("Deleted "..source..".",false); RefreshProfilesControls()
+    end)
+
+    local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetPoint("TOPLEFT",275,-292); note:SetWidth(380); note:SetJustifyH("LEFT")
+    note:SetText("Create New starts from MythInc defaults. Copy Current duplicates every setting in the active profile. Each character remembers which profile it uses. Switching profiles reloads the UI so secure frames and aura containers rebuild from one consistent settings set.")
+    note:SetTextColor(0.7,0.76,0.82)
+
+    profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,10,"OUTLINE"); profileActionStatus:SetPoint("TOPLEFT",275,-365); profileActionStatus:SetWidth(380); profileActionStatus:SetJustifyH("LEFT")
+end
+
 local function CreateConfig()
-    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage()
+    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
     config:SetScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
 end
