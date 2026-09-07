@@ -426,8 +426,9 @@ function ns.SpawnAllFrames()
             local unit = "party" .. i
             CreateNativeUnitFrame(unit, "MIUF_Party" .. i, "party", "party1")
         end
+        local primaryPlayer = frames.player
         local partyPlayer = CreateNativeUnitFrame("player", "MIUF_PartyPlayer", "party", "party1", false)
-        frames.player = frames.player or partyPlayer
+        frames.player = primaryPlayer
         frames.partyplayer = partyPlayer
     end
 
