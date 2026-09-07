@@ -15,17 +15,10 @@ local defaultPositions = {
 }
 
 for i = 1, 4 do
-    defaultPositions["party" .. i] = {
-        point = "TOPLEFT", relativePoint = "TOPLEFT", x = 35,
-        y = -220 - ((i - 1) * 78),
-    }
+    defaultPositions["party" .. i] = { point = "TOPLEFT", relativePoint = "TOPLEFT", x = 35, y = -220 - ((i - 1) * 78) }
 end
-
 for i = 1, 5 do
-    defaultPositions["boss" .. i] = {
-        point = "RIGHT", relativePoint = "RIGHT", x = -45,
-        y = 140 - ((i - 1) * 78),
-    }
+    defaultPositions["boss" .. i] = { point = "RIGHT", relativePoint = "RIGHT", x = -45, y = 140 - ((i - 1) * 78) }
 end
 
 local defaultSizes = {
@@ -45,9 +38,7 @@ local defaultGroupLayout = {
     boss = { orientation = "VERTICAL", direction = "DOWN", spacing = 32 },
 }
 
-local defaultBarLayout = {}
-local defaultAppearance = {}
-local defaultAuraLayout = {}
+local defaultBarLayout, defaultAppearance, defaultAuraLayout = {}, {}, {}
 for unitType in pairs(defaultSizes) do
     defaultBarLayout[unitType] = { powerPercent = 22 }
     defaultAppearance[unitType] = {
@@ -65,6 +56,7 @@ for unitType in pairs(defaultSizes) do
         showPortrait = false,
         portraitSide = "LEFT",
         portraitPercent = 22,
+        showRoleIcon = false,
     }
     defaultAuraLayout[unitType] = {
         buffs = { enabled = true, showText = true, iconSize = 22, maxCount = 6, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 5 },
@@ -104,17 +96,19 @@ local function InitializeDatabase()
     MythIncUnitFramesDB.groupLayout = FillMissing(MythIncUnitFramesDB.groupLayout, defaultGroupLayout)
     if type(MythIncUnitFramesDB.trackedBuffs) ~= "table" then MythIncUnitFramesDB.trackedBuffs = {} end
     if type(MythIncUnitFramesDB.seenBuffs) ~= "table" then MythIncUnitFramesDB.seenBuffs = {} end
-    -- 0.6.5 splits unit-frame movers and aura movers into independent lock states.
-    -- Migrate the old single `locked` value so existing users keep the behavior they had.
+
     local legacyLocked = type(MythIncUnitFramesDB.locked) == "boolean" and MythIncUnitFramesDB.locked or true
     if type(MythIncUnitFramesDB.frameLocked) ~= "boolean" then MythIncUnitFramesDB.frameLocked = legacyLocked end
     if type(MythIncUnitFramesDB.auraLocked) ~= "boolean" then MythIncUnitFramesDB.auraLocked = legacyLocked end
     MythIncUnitFramesDB.locked = nil
-    MythIncUnitFramesDB.version = 15
-end
 
--- SavedVariables are not guaranteed to be populated while addon files are still
--- executing. Initialize only after ADDON_LOADED (or from runtime calls after that).
+    if type(MythIncUnitFramesDB.partyRoleIconsEnabled) == "boolean" then
+        MythIncUnitFramesDB.appearance.party.showRoleIcon = MythIncUnitFramesDB.partyRoleIconsEnabled
+        MythIncUnitFramesDB.partyRoleIconsEnabled = nil
+    end
+
+    MythIncUnitFramesDB.version = 16
+end
 
 ns.defaultPositions = defaultPositions
 ns.defaultSizes = defaultSizes
@@ -141,38 +135,24 @@ function ns.SaveSize(unitType, width, height)
     MythIncUnitFramesDB.sizes[unitType] = { width = math.floor(width + 0.5), height = math.floor(height + 0.5) }
 end
 
-function ns.GetPowerPercent(unitType)
-    InitializeDatabase()
-    return MythIncUnitFramesDB.barLayout[unitType].powerPercent
-end
+function ns.GetPowerPercent(unitType) InitializeDatabase(); return MythIncUnitFramesDB.barLayout[unitType].powerPercent end
 function ns.SavePowerPercent(unitType, percent)
-    InitializeDatabase()
-    MythIncUnitFramesDB.barLayout[unitType].powerPercent = math.floor(percent + 0.5)
+    InitializeDatabase(); MythIncUnitFramesDB.barLayout[unitType].powerPercent = math.floor(percent + 0.5)
 end
 
-function ns.GetAppearance(unitType)
-    InitializeDatabase()
-    return MythIncUnitFramesDB.appearance[unitType]
-end
+function ns.GetAppearance(unitType) InitializeDatabase(); return MythIncUnitFramesDB.appearance[unitType] end
 function ns.SaveAppearance(unitType, values)
     InitializeDatabase()
     local current = MythIncUnitFramesDB.appearance[unitType]
     for key, value in pairs(values) do current[key] = value end
 end
 
-function ns.IsFrameTypeEnabled(unitType)
-    InitializeDatabase()
-    return MythIncUnitFramesDB.enabled[unitType] ~= false
-end
+function ns.IsFrameTypeEnabled(unitType) InitializeDatabase(); return MythIncUnitFramesDB.enabled[unitType] ~= false end
 function ns.SetFrameTypeEnabled(unitType, enabled)
-    InitializeDatabase()
-    MythIncUnitFramesDB.enabled[unitType] = enabled and true or false
+    InitializeDatabase(); MythIncUnitFramesDB.enabled[unitType] = enabled and true or false
 end
 
-function ns.GetGroupLayout(unitType)
-    InitializeDatabase()
-    return MythIncUnitFramesDB.groupLayout[unitType]
-end
+function ns.GetGroupLayout(unitType) InitializeDatabase(); return MythIncUnitFramesDB.groupLayout[unitType] end
 function ns.SaveGroupLayout(unitType, values)
     InitializeDatabase()
     local current = MythIncUnitFramesDB.groupLayout[unitType]
@@ -201,14 +181,9 @@ function ns.SaveAuraLayout(unitType, auraType, values)
     for key, value in pairs(values) do current[key] = value end
 end
 
-
-function ns.GetTrackedBuffs()
-    InitializeDatabase()
-    return MythIncUnitFramesDB.trackedBuffs
-end
+function ns.GetTrackedBuffs() InitializeDatabase(); return MythIncUnitFramesDB.trackedBuffs end
 function ns.SetTrackedBuffs(values)
-    InitializeDatabase()
-    MythIncUnitFramesDB.trackedBuffs = type(values) == "table" and CopyTable(values) or {}
+    InitializeDatabase(); MythIncUnitFramesDB.trackedBuffs = type(values) == "table" and CopyTable(values) or {}
 end
 function ns.GetTrackedBuffSpellIDs()
     InitializeDatabase()
@@ -219,10 +194,7 @@ function ns.GetTrackedBuffSpellIDs()
     end
     return ids
 end
-function ns.GetSeenBuffs()
-    InitializeDatabase()
-    return MythIncUnitFramesDB.seenBuffs
-end
+function ns.GetSeenBuffs() InitializeDatabase(); return MythIncUnitFramesDB.seenBuffs end
 function ns.RecordSeenBuff(spellID, name, icon)
     InitializeDatabase()
     local id = tonumber(spellID)
@@ -233,17 +205,12 @@ function ns.RecordSeenBuff(spellID, name, icon)
     if icon then current.icon = icon end
     current.lastSeen = time and time() or 0
 end
-function ns.ClearSeenBuffs()
-    InitializeDatabase()
-    MythIncUnitFramesDB.seenBuffs = {}
-end
+function ns.ClearSeenBuffs() InitializeDatabase(); MythIncUnitFramesDB.seenBuffs = {} end
 
 function ns.AreFrameMoversLocked() InitializeDatabase(); return MythIncUnitFramesDB.frameLocked end
 function ns.SetFrameMoversLockedState(locked) InitializeDatabase(); MythIncUnitFramesDB.frameLocked = locked and true or false end
 function ns.AreAuraMoversLocked() InitializeDatabase(); return MythIncUnitFramesDB.auraLocked end
 function ns.SetAuraMoversLockedState(locked) InitializeDatabase(); MythIncUnitFramesDB.auraLocked = locked and true or false end
-
--- Compatibility aliases retained so the cleanup pass does not change callers.
 function ns.IsLocked() return ns.AreFrameMoversLocked() end
 function ns.SetLocked(locked) ns.SetFrameMoversLockedState(locked) end
 
@@ -278,18 +245,14 @@ function ns.ResetFrameAppearance(unitType)
         MythIncUnitFramesDB.sizes[unitType] = CopyTable(defaultSizes[unitType])
         MythIncUnitFramesDB.barLayout[unitType] = CopyTable(defaultBarLayout[unitType])
         MythIncUnitFramesDB.appearance[unitType] = CopyTable(defaultAppearance[unitType])
-        if defaultGroupLayout[unitType] then
-            MythIncUnitFramesDB.groupLayout[unitType] = CopyTable(defaultGroupLayout[unitType])
-        end
+        if defaultGroupLayout[unitType] then MythIncUnitFramesDB.groupLayout[unitType] = CopyTable(defaultGroupLayout[unitType]) end
     end
 end
 
 function ns.ResetAuraLayout(unitType, auraType)
     InitializeDatabase()
     local defaults = defaultAuraLayout[unitType] and defaultAuraLayout[unitType][auraType]
-    if defaults then
-        MythIncUnitFramesDB.auraLayout[unitType][auraType] = CopyTable(defaults)
-    end
+    if defaults then MythIncUnitFramesDB.auraLayout[unitType][auraType] = CopyTable(defaults) end
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -335,7 +298,6 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         print("|cff66ccffMythInc Unit Frames|r frames unlocked.")
         return
     end
-
     if command == "lock" then
         ns.SetFrameMoversLockedState(true)
         if ns.SetFrameMoversLocked then ns.SetFrameMoversLocked(true) end
@@ -343,8 +305,6 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         print("|cff66ccffMythInc Unit Frames|r frames locked.")
         return
     end
-
-
     if command == "auraunlock" then
         if InCombatLockdown() then print("|cff66ccffMythInc Unit Frames|r cannot unlock aura movers during combat."); return end
         ns.SetAuraMoversLockedState(false)
@@ -353,7 +313,6 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         print("|cff66ccffMythInc Unit Frames|r aura movers unlocked.")
         return
     end
-
     if command == "auralock" then
         ns.SetAuraMoversLockedState(true)
         if ns.SetAuraMoversLocked then ns.SetAuraMoversLocked(true) end
@@ -361,14 +320,11 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         print("|cff66ccffMythInc Unit Frames|r aura movers locked.")
         return
     end
-
     if command == "size" then
         local unitType, widthText, heightText = rest:match("^(%S+)%s+(%d+)%s+(%d+)$")
         unitType = unitType and unitType:lower() or nil
         local width, height = tonumber(widthText), tonumber(heightText)
-        if not unitType or not defaultSizes[unitType] then
-            print("|cff66ccffMythInc Unit Frames|r unknown frame type."); return
-        end
+        if not unitType or not defaultSizes[unitType] then print("|cff66ccffMythInc Unit Frames|r unknown frame type."); return end
         if not width or not height or width < 100 or width > 600 or height < 24 or height > 150 then
             print("|cff66ccffMythInc Unit Frames|r size limits: width 100-600, height 24-150."); return
         end
@@ -379,7 +335,6 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
         print(string.format("|cff66ccffMythInc Unit Frames|r %s size set to %dx%d.", unitType, width, height))
         return
     end
-
     if command == "reset" then
         if InCombatLockdown() then print("|cff66ccffMythInc Unit Frames|r cannot reset during combat."); return end
         ns.ResetAllSettings()
