@@ -234,7 +234,12 @@ end
 
 function ns.ApplyGroupLayout(unitType)
     if unitType == "party" then ns.ApplyPartyLayout()
-    elseif unitType == "boss" then ns.ApplyBossLayout() end
+    elseif unitType == "boss" then ns.ApplyBossLayout()
+    else return end
+
+    if ns.AreFrameMoversLocked and not ns.AreFrameMoversLocked() then
+        ns.PreviewGroupLayout(unitType, previewLayouts[unitType])
+    end
 end
 
 local originalSetFrameMoversLocked = ns.SetFrameMoversLocked
