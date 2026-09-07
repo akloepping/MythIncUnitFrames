@@ -257,7 +257,7 @@ local function CreateMover(frame, labelText, positionKey)
     frame.MIUF_Mover = mover
 end
 
-local function CreateNativeUnitFrame(unit, name, unitType, positionKey)
+local function CreateNativeUnitFrame(unit, name, unitType, positionKey, registerWatch)
     unitType = unitType or unit
     positionKey = positionKey or unit
 
@@ -346,7 +346,11 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey)
     ApplyPosition(positionKey, frame)
     ApplyFrameState(frame, BuildFrameState(unitType))
     UpdateFrame(frame)
-    RegisterUnitWatch(frame)
+    if registerWatch ~= false then
+        RegisterUnitWatch(frame)
+    else
+        frame:Hide()
+    end
     frames[unit] = frame
     return frame
 end
@@ -422,6 +426,9 @@ function ns.SpawnAllFrames()
             local unit = "party" .. i
             CreateNativeUnitFrame(unit, "MIUF_Party" .. i, "party", "party1")
         end
+        local partyPlayer = CreateNativeUnitFrame("player", "MIUF_PartyPlayer", "party", "party1", false)
+        frames.player = frames.player or partyPlayer
+        frames.partyplayer = partyPlayer
     end
 
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end
