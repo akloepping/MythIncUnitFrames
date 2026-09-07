@@ -1,0 +1,12 @@
+## Interface: 120100
+## Title: MythInc Unit Frames
+## Notes: Simple, readable unit frames for MythInc.
+## Author: MythInc
+## Version: 0.8.17-alpha
+## RequiredDeps: oUF
+## SavedVariables: MythIncUnitFramesDB
+## X-oUF: MythIncUnitFrames
+
+Core.lua
+Layout.lua
+Config.lua
