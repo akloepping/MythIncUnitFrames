@@ -87,7 +87,7 @@ local function RestoreFramePreview(unitType)
 end
 
 local function PreviewFrameSliders()
-    if refreshing or InCombatLockdown() or not ns.frames then return end
+    if refreshing or InCombatLockdown() or not ns.PreviewFrameType then return end
     local width,height=Round(widthSlider:GetValue()),Round(heightSlider:GetValue())
     local powerPercent=Round(powerSlider:GetValue())
     local portraitPercent=Round(portraitSlider:GetValue())
@@ -96,7 +96,6 @@ local function PreviewFrameSliders()
     local borderOpacity=Round(borderSlider:GetValue())
     local nameX,nameY=Round(nameXSlider:GetValue()),Round(nameYSlider:GetValue())
     local healthX,healthY=Round(healthXSlider:GetValue()),Round(healthYSlider:GetValue())
-    local barTexture=ns.GetTexturePath(working.texture)
 
     working.fontSize=fontSize; working.portraitPercent=portraitPercent
     working.backgroundOpacity=backgroundOpacity; working.borderOpacity=borderOpacity
@@ -104,44 +103,24 @@ local function PreviewFrameSliders()
     working.healthXOffset=healthX; working.healthYOffset=healthY
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
-    for _,frame in pairs(ns.frames) do
-        if frame.MIUF_UnitType==selectedType then
-            frame:SetSize(width,height)
-            local portraitWidth=working.showPortrait and math.max(18,math.floor(width*(portraitPercent/100))) or 0
-            if frame.Portrait then
-                frame.Portrait:ClearAllPoints()
-                if working.showPortrait then
-                    frame.Portrait:SetWidth(portraitWidth); frame.Portrait:SetPoint("TOP",frame,"TOP",0,-2); frame.Portrait:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
-                    if working.portraitSide=="RIGHT" then frame.Portrait:SetPoint("RIGHT",frame,"RIGHT",-2,0) else frame.Portrait:SetPoint("LEFT",frame,"LEFT",2,0) end
-                    frame.Portrait:Show()
-                else frame.Portrait:Hide() end
-            end
-            local leftInset,rightInset=2,2
-            if working.showPortrait then if working.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
-            local powerHeight=math.max(8,math.floor(height*(powerPercent/100)))
-            if frame.Health then
-                frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
-                frame.Health:SetStatusBarTexture(barTexture)
-            end
-            if frame.Power then
-                frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
-                frame.Power:SetStatusBarTexture(barTexture)
-            end
-            if frame.Castbar then frame.Castbar:SetStatusBarTexture(barTexture) end
-            if frame.NameText and frame.Health then
-                frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
-                frame.NameText:SetFont(ns.GetFontPath(working.fontFace),fontSize,"OUTLINE")
-            end
-            if frame.HealthText and frame.Health then
-                frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(42)
-                frame.HealthText:SetFont(ns.GetFontPath(working.fontFace),math.max(9,fontSize-1),"OUTLINE")
-            end
-            if frame.Background then frame.Background:SetColorTexture(0.03,0.03,0.03,backgroundOpacity/100) end
-            if frame.Border then frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,borderOpacity/100) end
-            if ns.ResizeAuraContainers then ns.ResizeAuraContainers(frame,width) end
-        end
-    end
-    if ns.ApplyGroupLayout and (selectedType=="party" or selectedType=="boss") then ns.ApplyGroupLayout(selectedType) end
+    ns.PreviewFrameType(selectedType,{
+        size={width=width,height=height},
+        powerPercent=powerPercent,
+        appearance={
+            texture=working.texture,
+            fontFace=working.fontFace,
+            fontSize=fontSize,
+            showPortrait=working.showPortrait,
+            portraitSide=working.portraitSide,
+            portraitPercent=portraitPercent,
+            backgroundOpacity=backgroundOpacity,
+            borderOpacity=borderOpacity,
+            nameXOffset=nameX,
+            nameYOffset=nameY,
+            healthXOffset=healthX,
+            healthYOffset=healthY,
+        },
+    })
     previewFrameType=selectedType
 end
 
