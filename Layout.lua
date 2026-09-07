@@ -268,45 +268,97 @@ local function CreateDispelHighlight(self)
             button:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
             button:EnableMouse(false)
 
-            local function AddEdge(point1, relPoint1, x1, y1, point2, relPoint2, x2, y2, r, g, b, layer)
+            local function AddEdge(point1, relPoint1, x1, y1, point2, relPoint2, x2, y2, r, g, b, layer, colorMap)
                 local edge = button:CreateTexture(nil, "OVERLAY", nil, layer or 7)
                 edge:SetColorTexture(r or 1, g or 1, b or 1, 1)
                 edge:SetPoint(point1, self, relPoint1, x1, y1)
                 edge:SetPoint(point2, self, relPoint2, x2, y2)
 
-                -- PreserveAsset keeps our rectangular edge while Blizzard owns
-                -- the protected show/hide + dispel-color decision.  Black edges
-                -- remain black under vertex coloring, so they can provide a
-                -- contrast outline behind the colored dispel border.
                 button:AddDispelTypeTexture(edge, {
                     style = Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset,
                     showWhenHarmful = true,
-                    customDispelColorMap = oUF.colors.dispel,
+                    customDispelColorMap = colorMap or oUF.colors.dispel,
                 })
+
                 return edge
             end
 
+            local fixedOutlineMap = {
+                Magic = CreateColor(1, 1, 1),
+                Curse = CreateColor(1, 1, 1),
+                Disease = CreateColor(1, 1, 1),
+                Poison = CreateColor(1, 1, 1),
+                Bleed = CreateColor(1, 1, 1),
+                Enrage = CreateColor(1, 1, 1),
+                None = CreateColor(1, 1, 1),
+            }
+
             local thickness = 5
             local outline = 1
-            local outerThickness = thickness + (outline * 2)
-
-            -- A one-pixel black outline sits behind and slightly outside the
+            -- A one-pixel outline sits behind and slightly outside the
             -- five-pixel colored border.  Both are driven by the same protected
             -- dispel state, and unlike the old full-frame shade this does not
             -- obscure the health/power bars or text.
-            local black = {
-                top = AddEdge("TOPLEFT", "TOPLEFT", -outline, outline, "TOPRIGHT", "TOPRIGHT", outline, -(outerThickness - outline), 0, 0, 0, 6),
-                bottom = AddEdge("BOTTOMLEFT", "BOTTOMLEFT", -outline, outerThickness - outline, "BOTTOMRIGHT", "BOTTOMRIGHT", outline, -outline, 0, 0, 0, 6),
-                left = AddEdge("TOPLEFT", "TOPLEFT", -outline, -(outerThickness - outline), "BOTTOMLEFT", "BOTTOMLEFT", outerThickness - outline, outerThickness - outline, 0, 0, 0, 6),
-                right = AddEdge("TOPRIGHT", "TOPRIGHT", -(outerThickness - outline), -(outerThickness - outline), "BOTTOMRIGHT", "BOTTOMRIGHT", outline, outerThickness - outline, 0, 0, 0, 6),
+            local outlineEdges = {
+                -- 1px horizontal strip above the frame
+                top = AddEdge(
+                    "BOTTOMLEFT", "TOPLEFT", -outline, 0,
+                    "TOPRIGHT", "TOPRIGHT", outline, outline,
+                    1, 1, 1, 6, fixedOutlineMap
+                ),
+
+                -- 1px horizontal strip below the frame
+                bottom = AddEdge(
+                    "TOPLEFT", "BOTTOMLEFT", -outline, 0,
+                    "BOTTOMRIGHT", "BOTTOMRIGHT", outline, -outline,
+                    1, 1, 1, 6, fixedOutlineMap
+                ),
+
+                -- 1px vertical strip left of the frame
+                left = AddEdge(
+                    "TOPRIGHT", "TOPLEFT", 0, outline,
+                    "BOTTOMLEFT", "BOTTOMLEFT", -outline, -outline,
+                    1, 1, 1, 6, fixedOutlineMap
+                ),
+
+                -- 1px vertical strip right of the frame
+                right = AddEdge(
+                    "TOPLEFT", "TOPRIGHT", 0, outline,
+                    "BOTTOMRIGHT", "BOTTOMRIGHT", outline, -outline,
+                    1, 1, 1, 6, fixedOutlineMap
+                ),
             }
 
             button.DispelHighlight = {
-                outline = black,
-                top = AddEdge("TOPLEFT", "TOPLEFT", 0, 0, "TOPRIGHT", "TOPRIGHT", 0, -thickness, 1, 1, 1, 7),
-                bottom = AddEdge("BOTTOMLEFT", "BOTTOMLEFT", 0, thickness, "BOTTOMRIGHT", "BOTTOMRIGHT", 0, 0, 1, 1, 1, 7),
-                left = AddEdge("TOPLEFT", "TOPLEFT", 0, -thickness, "BOTTOMLEFT", "BOTTOMLEFT", thickness, thickness, 1, 1, 1, 7),
-                right = AddEdge("TOPRIGHT", "TOPRIGHT", -thickness, -thickness, "BOTTOMRIGHT", "BOTTOMRIGHT", 0, thickness, 1, 1, 1, 7),
+                outline = outlineEdges,
+
+                -- Top: full width, thickness pixels tall
+                top = AddEdge(
+                    "TOPLEFT", "TOPLEFT", 0, 0,
+                    "BOTTOMRIGHT", "TOPRIGHT", 0, -thickness,
+                    1, 1, 1, 7
+                ),
+
+                -- Bottom: full width, thickness pixels tall
+                bottom = AddEdge(
+                    "BOTTOMLEFT", "BOTTOMLEFT", 0, 0,
+                    "TOPRIGHT", "BOTTOMRIGHT", 0, thickness,
+                    1, 1, 1, 7
+                ),
+
+                -- Left: thickness pixels wide, between top and bottom
+                left = AddEdge(
+                    "TOPLEFT", "TOPLEFT", 0, -thickness,
+                    "BOTTOMRIGHT", "BOTTOMLEFT", thickness, thickness,
+                    1, 1, 1, 7
+                ),
+
+                -- Right: thickness pixels wide, between top and bottom
+                right = AddEdge(
+                    "TOPLEFT", "TOPRIGHT", -thickness, -thickness,
+                    "BOTTOMRIGHT", "BOTTOMRIGHT", 0, thickness,
+                    1, 1, 1, 7
+                ),
             }
         end,
     })
