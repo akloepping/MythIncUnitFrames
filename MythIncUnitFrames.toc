@@ -3,14 +3,13 @@
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
 ## Version: 0.10.0-alpha
-## OptionalDeps: Clique
 ## SavedVariables: MythIncUnitFramesDB
 
 Core.lua
 Media.lua
-Native.lua
+UnitFrames.lua
 ClickCasting.lua
 Castbars.lua
-NativeAuras.lua
+Auras.lua
 Groups.lua
 Config.lua

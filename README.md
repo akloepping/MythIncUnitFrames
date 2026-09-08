@@ -1,5 +1,5 @@
 # MythInc Unit Frames
 
-Development repository for MythInc Unit Frames, a World of Warcraft unit-frame addon built on oUF.
+Development repository for MythInc Unit Frames, a native World of Warcraft unit-frame addon.
 
-Current baseline: **0.8.17-alpha**.
+Current development baseline: **0.10.0-alpha**.

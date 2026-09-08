@@ -86,9 +86,15 @@ end
 local function RestoreFramePreview(unitType)
     if InCombatLockdown() then return end
     unitType=unitType or previewFrameType
-    if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
     if unitType and ns.ResetGroupPreview then ns.ResetGroupPreview(unitType) end
+    if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
     if previewFrameType==unitType then previewFrameType=nil end
+end
+
+local function PreviewGroupControls(sizeOverride)
+    if refreshing or InCombatLockdown() or (selectedType~="party" and selectedType~="boss") then return end
+    if ns.PreviewGroupLayout then ns.PreviewGroupLayout(selectedType,groupWorking,sizeOverride) end
+    previewFrameType=selectedType
 end
 
 local function PreviewFrameSliders()
@@ -121,9 +127,7 @@ local function PreviewFrameSliders()
         powerPercent=powerPercent,
         appearance=working,
     })
-    if ns.PreviewGroupLayout and (selectedType=="party" or selectedType=="boss") then
-        ns.PreviewGroupLayout(selectedType,groupWorking,{width=width,height=height})
-    end
+    PreviewGroupControls({width=width,height=height})
     previewFrameType=selectedType
 end
 
@@ -441,6 +445,13 @@ end
 
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,840); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
+    local function FitConfigToScreen()
+        config:SetScale(math.min(1,(UIParent:GetWidth()-32)/900,(UIParent:GetHeight()-32)/840))
+    end
+    config:SetScript("OnShow",FitConfigToScreen)
+    config:RegisterEvent("UI_SCALE_CHANGED"); config:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    config:SetScript("OnEvent",FitConfigToScreen)
+    FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
     config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
@@ -650,9 +661,37 @@ end
 local function CreateConfig()
     if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
-    config:SetScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
+    config:HookScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
 end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
 
-local combatWatcher=CreateFrame("Frame"); combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:SetScript("OnEvent",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end; if config and config:IsShown() then ns.RefreshConfig() end end)
+local lockMoversButton=MakeButton(UIParent,"Lock Movers",120,28)
+lockMoversButton:SetPoint("TOP",UIParent,"TOP",0,-100)
+lockMoversButton:SetFrameStrata("DIALOG")
+lockMoversButton:SetClampedToScreen(true)
+lockMoversButton:Hide()
+
+function ns.UpdateLockMoversButton()
+    local frameLocked,auraLocked=ns.AreFrameMoversLocked(),ns.AreAuraMoversLocked()
+    lockMoversButton:SetShown(not InCombatLockdown() and (not frameLocked or not auraLocked))
+    if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frame Movers" or "Lock Frame Movers") end
+    if auraLockButton then auraLockButton:SetText(auraLocked and "Unlock Aura Movers" or "Lock Aura Movers") end
+end
+
+lockMoversButton:SetScript("OnClick",function()
+    if InCombatLockdown() then return end
+    ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
+    ns.SetMoversLocked(true)
+end)
+
+local combatWatcher=CreateFrame("Frame")
+combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+combatWatcher:SetScript("OnEvent",function(_,event)
+    if event~="PLAYER_ENTERING_WORLD" then
+        if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end
+        ns.SetAuraMoversLocked(InCombatLockdown() or ns.AreAuraMoversLocked())
+        if config and config:IsShown() then ns.RefreshConfig() end
+    end
+    ns.UpdateLockMoversButton()
+end)

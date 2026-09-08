@@ -156,7 +156,12 @@ function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
         frame:SetSize(width, height)
         if index == 1 then
             frame:ClearAllPoints()
-            frame:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
+            local owner
+            if unitType == "party" then owner = ns.partyFrameMoverOwner or (ns.frames and ns.frames.party1)
+            else owner = ns.frames and ns.frames.boss1 end
+            local mover = owner and owner.MIUF_Mover
+            if mover then frame:SetPoint("TOPLEFT", mover, "TOPLEFT")
+            else frame:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y) end
         else
             PositionPreviewFrame(frame, previous, layout, spacing)
         end
@@ -189,8 +194,11 @@ function ns.ApplyPartyLayout()
     local partyPlayer = ns.frames.partyplayer
     if not IsInGroup() or IsInRaid() then
         if partyPlayer then partyPlayer:Hide() end
-        ns.partyFrameMoverOwner = nil
+        ns.partyFrameMoverOwner = AnchorGroupFrames(ns.frames.party1 and { ns.frames.party1 } or {}, layout, "party1")
         ns.partyAuraMoverOwner = nil
+        if ns.SetFrameMoversLocked and ns.AreFrameMoversLocked then
+            ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
+        end
         return
     end
 
@@ -217,7 +225,7 @@ function ns.ApplyPartyLayout()
     end)
 
     local owner = AnchorGroupFrames(ordered, layout, "party1")
-    ns.partyFrameMoverOwner = owner
+    ns.partyFrameMoverOwner = owner or AnchorGroupFrames(ns.frames.party1 and { ns.frames.party1 } or {}, layout, "party1")
     ns.partyAuraMoverOwner = owner
     if ns.partyAuraMoverOwner and ns.SetAuraMoversLocked and ns.AreAuraMoversLocked then
         ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())

@@ -1,8 +1,6 @@
 local ADDON_NAME, ns = ...
 
-if _G.oUF then return end
-
-ns.NativeUnitFrames = true
+ns.UnitFramesLoaded = true
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
@@ -196,15 +194,25 @@ end
 local function CreateMover(frame,labelText,positionKey)
     frame:SetMovable(true); frame:SetClampedToScreen(true)
     local mover=CreateFrame("Frame",nil,UIParent,"BackdropTemplate"); mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(frame)
+    mover:SetMovable(true); mover:SetClampedToScreen(true)
     mover:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); mover:SetBackdropColor(0.05,0.35,0.8,0.28); mover:SetBackdropBorderColor(0.2,0.65,1,1); mover:EnableMouse(true); mover:RegisterForDrag("LeftButton")
     local label=mover:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetPoint("CENTER"); label:SetText(labelText)
-    mover:SetScript("OnDragStart",function() if not InCombatLockdown() then frame:StartMoving() end end)
+    local dragTarget=frame
+    mover:SetScript("OnDragStart",function()
+        if InCombatLockdown() then return end
+        -- Hidden group frames keep their secure visibility; move their independent mover instead.
+        local group=frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="boss"
+        dragTarget=group and not frame:IsShown() and mover or frame
+        dragTarget:StartMoving()
+    end)
     mover:SetScript("OnDragStop",function()
-        frame:StopMovingOrSizing()
+        dragTarget:StopMovingOrSizing()
         if not InCombatLockdown() then
-            SaveMoverPosition(frame,positionKey)
-            if frame.MIUF_UnitType=="party" and ns.ApplyPartyLayout then ns.ApplyPartyLayout() elseif frame.MIUF_UnitType=="boss" and ns.ApplyBossLayout then ns.ApplyBossLayout() end
+            SaveMoverPosition(dragTarget,positionKey)
+            if ns.ApplyGroupLayout then ns.ApplyGroupLayout(frame.MIUF_UnitType) end
         end
+        if dragTarget==mover then mover:ClearAllPoints(); mover:SetAllPoints(frame) end
+        dragTarget=frame
     end)
     local resize=CreateFrame("Button",nil,mover,"BackdropTemplate"); resize:SetSize(14,14); resize:SetPoint("BOTTOMRIGHT"); resize:SetFrameLevel(mover:GetFrameLevel()+10)
     resize:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); resize:SetBackdropColor(0.12,0.12,0.12,0.95); resize:SetBackdropBorderColor(0.8,0.8,0.8,1); resize:EnableMouse(true)
@@ -227,7 +235,7 @@ local function CreateMover(frame,labelText,positionKey)
     mover.MIUF_ResizeHandle=resize; mover:Hide(); frame.MIUF_Mover=mover
 end
 
-local function CreateNativeUnitFrame(unit,name,unitType,positionKey,registerWatch)
+local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,storageKey)
     unitType=unitType or unit; positionKey=positionKey or unit
     local size=ns.GetSize(unitType); local frame=CreateFrame("Button",name,UIParent,"SecureUnitButtonTemplate")
     frame.MIUF_Unit=unit; frame.MIUF_UnitType=unitType; frame.MIUF_PositionKey=positionKey; frame.__unit=unit
@@ -280,7 +288,7 @@ local function CreateNativeUnitFrame(unit,name,unitType,positionKey,registerWatc
     if registerWatch~=false then
         if unitType=="party" and unit:match("^party%d+$") and RegisterStateDriver then RegisterStateDriver(frame,"visibility",string.format("[group:raid] hide; [group:party,@%s,exists] show; hide",unit)) else RegisterUnitWatch(frame) end
     else frame:Hide() end
-    frames[unit]=frame; return frame
+    frames[storageKey or unit]=frame; return frame
 end
 
 function ns.ApplyFrameType(unitType)
@@ -305,6 +313,7 @@ function ns.SetFrameMoversLocked(locked)
             if locked or previewEnabled[unitType]==false or not ns.IsFrameTypeEnabled(unitType) or groupOwnerMismatch or bossOwnerMismatch then mover:Hide() else mover:Show() end
         end
     end
+    if ns.UpdateLockMoversButton then ns.UpdateLockMoversButton() end
 end
 function ns.PreviewUnitTypeMovers(unitType,enabled) previewEnabled[unitType]=enabled and true or false; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked()) end
 function ns.SetMoversLocked(locked) ns.SetFrameMoversLocked(locked); if ns.SetAuraMoversLocked then ns.SetAuraMoversLocked(locked) end end
@@ -313,16 +322,16 @@ function ns.ResetLayout() for _,frame in pairs(frames) do ApplyPosition(frame.MI
 local spawned=false
 function ns.SpawnAllFrames()
     if spawned then return end; spawned=true
-    if ns.IsFrameTypeEnabled("player") then CreateNativeUnitFrame("player","MIUF_Player") end
-    if ns.IsFrameTypeEnabled("target") then CreateNativeUnitFrame("target","MIUF_Target") end
-    if ns.IsFrameTypeEnabled("focus") then CreateNativeUnitFrame("focus","MIUF_Focus") end
-    if ns.IsFrameTypeEnabled("pet") then CreateNativeUnitFrame("pet","MIUF_Pet") end
-    if ns.IsFrameTypeEnabled("targettarget") then CreateNativeUnitFrame("targettarget","MIUF_TargetTarget") end
+    if ns.IsFrameTypeEnabled("player") then CreateUnitFrame("player","MIUF_Player") end
+    if ns.IsFrameTypeEnabled("target") then CreateUnitFrame("target","MIUF_Target") end
+    if ns.IsFrameTypeEnabled("focus") then CreateUnitFrame("focus","MIUF_Focus") end
+    if ns.IsFrameTypeEnabled("pet") then CreateUnitFrame("pet","MIUF_Pet") end
+    if ns.IsFrameTypeEnabled("targettarget") then CreateUnitFrame("targettarget","MIUF_TargetTarget") end
     if ns.IsFrameTypeEnabled("party") then
-        for i=1,4 do local unit="party"..i; CreateNativeUnitFrame(unit,"MIUF_Party"..i,"party","party1") end
-        local primaryPlayer=frames.player; local partyPlayer=CreateNativeUnitFrame("player","MIUF_PartyPlayer","party","party1",false); frames.player=primaryPlayer; frames.partyplayer=partyPlayer
+        for i=1,4 do local unit="party"..i; CreateUnitFrame(unit,"MIUF_Party"..i,"party","party1") end
+        CreateUnitFrame("player","MIUF_PartyPlayer","party","party1",false,"partyplayer")
     end
-    if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateNativeUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
+    if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
