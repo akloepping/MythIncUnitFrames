@@ -83,8 +83,15 @@ end
 
 local function RestoreFramePreview(unitType)
     unitType=unitType or previewFrameType
+    if unitType and ns.ResetGroupPreview then ns.ResetGroupPreview(unitType) end
     if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
     if previewFrameType==unitType then previewFrameType=nil end
+end
+
+local function PreviewGroupControls()
+    if refreshing or InCombatLockdown() or (selectedType~="party" and selectedType~="boss") then return end
+    if ns.PreviewGroupLayout then ns.PreviewGroupLayout(selectedType,groupWorking) end
+    previewFrameType=selectedType
 end
 
 local function PreviewFrameSliders()
@@ -134,6 +141,7 @@ local function PreviewFrameSliders()
             raidMarkerYOffset=raidY,
         },
     })
+    PreviewGroupControls()
     previewFrameType=selectedType
 end
 
@@ -401,6 +409,13 @@ end
 
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,840); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
+    local function FitConfigToScreen()
+        config:SetScale(math.min(1,(UIParent:GetWidth()-32)/900,(UIParent:GetHeight()-32)/840))
+    end
+    config:SetScript("OnShow",FitConfigToScreen)
+    config:RegisterEvent("UI_SCALE_CHANGED"); config:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    config:SetScript("OnEvent",FitConfigToScreen)
+    FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
     config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
@@ -443,9 +458,9 @@ local function CreateFramesPage()
     sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls() end)
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
     local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
-    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; RefreshGroupControls() end)
-    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; RefreshGroupControls() end)
-    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); MarkPending("Party player inclusion staged.") end)
+    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; RefreshGroupControls(); PreviewGroupControls() end)
+    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; RefreshGroupControls(); PreviewGroupControls() end)
+    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); PreviewGroupControls(); MarkPending("Party player inclusion staged.") end)
     partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); PreviewFrameSliders() end end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
@@ -489,7 +504,7 @@ local function CreateFramesPage()
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
     local apply=MakeButton(framesPage,"Apply Frame",100,28); apply:SetPoint("BOTTOMLEFT",20,8); apply:SetScript("OnClick",ApplySelected)
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
+    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then ns.ResetFrameAppearance(selectedType); RestoreFramePreview(selectedType); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -605,7 +620,7 @@ end
 local function CreateConfig()
     if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
-    config:SetScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
+    config:HookScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
 end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end

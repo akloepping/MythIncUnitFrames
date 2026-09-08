@@ -194,15 +194,25 @@ end
 local function CreateMover(frame,labelText,positionKey)
     frame:SetMovable(true); frame:SetClampedToScreen(true)
     local mover=CreateFrame("Frame",nil,UIParent,"BackdropTemplate"); mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(frame)
+    mover:SetMovable(true); mover:SetClampedToScreen(true)
     mover:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); mover:SetBackdropColor(0.05,0.35,0.8,0.28); mover:SetBackdropBorderColor(0.2,0.65,1,1); mover:EnableMouse(true); mover:RegisterForDrag("LeftButton")
     local label=mover:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetPoint("CENTER"); label:SetText(labelText)
-    mover:SetScript("OnDragStart",function() if not InCombatLockdown() then frame:StartMoving() end end)
+    local dragTarget=frame
+    mover:SetScript("OnDragStart",function()
+        if InCombatLockdown() then return end
+        -- Hidden group frames keep their secure visibility; move their independent mover instead.
+        local group=frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="boss"
+        dragTarget=group and not frame:IsShown() and mover or frame
+        dragTarget:StartMoving()
+    end)
     mover:SetScript("OnDragStop",function()
-        frame:StopMovingOrSizing()
+        dragTarget:StopMovingOrSizing()
         if not InCombatLockdown() then
-            SaveMoverPosition(frame,positionKey)
-            if frame.MIUF_UnitType=="party" and ns.ApplyPartyLayout then ns.ApplyPartyLayout() elseif frame.MIUF_UnitType=="boss" and ns.ApplyBossLayout then ns.ApplyBossLayout() end
+            SaveMoverPosition(dragTarget,positionKey)
+            if ns.ApplyGroupLayout then ns.ApplyGroupLayout(frame.MIUF_UnitType) end
         end
+        if dragTarget==mover then mover:ClearAllPoints(); mover:SetAllPoints(frame) end
+        dragTarget=frame
     end)
     local resize=CreateFrame("Button",nil,mover,"BackdropTemplate"); resize:SetSize(14,14); resize:SetPoint("BOTTOMRIGHT"); resize:SetFrameLevel(mover:GetFrameLevel()+10)
     resize:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); resize:SetBackdropColor(0.12,0.12,0.12,0.95); resize:SetBackdropBorderColor(0.8,0.8,0.8,1); resize:EnableMouse(true)
