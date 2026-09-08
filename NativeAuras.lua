@@ -282,10 +282,9 @@ local function CreateAuraContainer(frame, auraType)
     ApplyContainerLayout(frame, auraType)
 end
 
--- Dispel highlighting is also driven entirely by AuraContainer. The slot only
--- receives HARMFUL|RAID auras, which Blizzard defines as debuffs the local player
--- can dispel. The AuraButton itself becomes the frame-sized highlight, so MIUF
--- never has to inspect aura data or branch on a secret value in combat.
+-- Dispel highlighting is driven entirely by AuraContainer. The slot only receives
+-- HARMFUL|RAID auras, which Blizzard defines as debuffs the local player can dispel.
+-- Blizzard's Border style supplies the dispel color without MIUF reading aura data.
 local function CreateDispelHighlight(frame)
     if not frame or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType] or frame.MIUF_DispelHighlight then return end
 
@@ -302,17 +301,15 @@ local function CreateDispelHighlight(frame)
             button:SetAllPoints(container)
             button:SetMouseMotionEnabled(false)
 
-            local overlay = button:CreateTexture(nil, "OVERLAY")
-            overlay:SetAllPoints(button)
-            overlay:SetTexture(FLAT)
-            overlay:SetAlpha(0.20)
+            local border = button:CreateTexture(nil, "OVERLAY")
+            border:SetAllPoints(button)
 
-            -- PreserveAsset keeps MIUF's full-frame texture while Blizzard supplies
-            -- the dispel-type color. Because the slot is already HARMFUL|RAID,
-            -- every assigned aura is one the player can actually dispel.
-            button:SetAuraBorder(overlay, {
+            -- Border uses Blizzard's built-in dispel border asset rather than
+            -- tinting MIUF's whole frame. The color still comes from the protected
+            -- aura button, so no secret dispel-type value is inspected by MIUF.
+            button:SetAuraBorder(border, {
                 showAlways = true,
-                style = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset or 3,
+                style = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle and Enum.CustomAuraButtonDispelTypeTextureStyle.Border or 0,
             })
         end,
     }
