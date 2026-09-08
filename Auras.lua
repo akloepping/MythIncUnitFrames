@@ -1,6 +1,6 @@
 local ADDON_NAME, ns = ...
 
-if not ns.NativeUnitFrames then return end
+if not ns.UnitFrames then return end
 
 -- WoW 12.1 aura data becomes secret in restricted combat contexts. MIUF never
 -- enumerates UnitAura data here; AuraContainer owns filtering and assignment.
@@ -15,7 +15,7 @@ local AURA_TYPES = {
         { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
     } },
 }
-local NATIVE_AURA_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true }
+local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true }
 local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true }
 
 local function BuildCandidateFilters(auraType)
@@ -70,7 +70,7 @@ local function InitializeAuraButton(button, layout)
 end
 
 local function PositionAuraAnchor(frame, auraType)
-    local data = frame.MIUF_NativeAuras and frame.MIUF_NativeAuras[auraType]
+    local data = frame.MIUF_Auras and frame.MIUF_Auras[auraType]
     if not data or not data.anchor then return end
     local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
@@ -80,7 +80,7 @@ local function PositionAuraAnchor(frame, auraType)
 end
 
 local function ApplyContainerLayout(frame, auraType)
-    local data = frame.MIUF_NativeAuras and frame.MIUF_NativeAuras[auraType]
+    local data = frame.MIUF_Auras and frame.MIUF_Auras[auraType]
     if not data then return end
     local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
@@ -153,7 +153,7 @@ local function CreateAuraContainer(frame, auraType)
     local anchor = CreateFrame("Frame", nil, frame)
     anchor:SetSize(width, size); anchor:SetPoint(point, frame, relativePoint, layout.xOffset or 0, layout.yOffset or 0)
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, anchor, "CustomAuraContainerTemplate")
-    if not ok or not container then print("|cffff5555MIUF: unable to create native aura container.|r"); anchor:Hide(); return end
+    if not ok or not container then print("|cffff5555MIUF: unable to create aura container.|r"); anchor:Hide(); return end
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
     local groupKeys = {}
     for _, group in ipairs(typeInfo.groups or {}) do
@@ -164,14 +164,14 @@ local function CreateAuraContainer(frame, auraType)
             initializeFrame = function(button) InitializeAuraButton(button, layout) end,
         }
         local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
-        if not added then print("|cffff5555MIUF: native " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
+        if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
         groupKeys[#groupKeys + 1] = group.key
     end
     SetFlowLayout(container, flowAnchor, growthX, growthY)
     local unitSet, unitError = pcall(container.SetUnit, container, frame.MIUF_Unit)
-    if not unitSet then print("|cffff5555MIUF: native aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
-    frame.MIUF_NativeAuras = frame.MIUF_NativeAuras or {}
-    frame.MIUF_NativeAuras[auraType] = { container = container, anchor = anchor, groupKeys = groupKeys }
+    if not unitSet then print("|cffff5555MIUF: aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
+    frame.MIUF_Auras = frame.MIUF_Auras or {}
+    frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, groupKeys = groupKeys }
     local previewAnchor = {}
     function previewAnchor:SetHeight(_) end
     function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end
@@ -190,7 +190,7 @@ end
 local function CreateDispelHighlight(frame)
     if not frame or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType] or frame.MIUF_DispelHighlight then return end
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
-    if not ok or not container then print("|cffff5555MIUF: unable to create native dispel highlight.|r"); return end
+    if not ok or not container then print("|cffff5555MIUF: unable to create dispel highlight.|r"); return end
     container:SetAllPoints(frame); container:SetFrameLevel(frame:GetFrameLevel() + 4)
 
     local slotOptions = {
@@ -234,22 +234,22 @@ local function CreateDispelHighlight(frame)
         end,
     }
     local added, slotOrError = pcall(container.AddAuraSlot, container, "miufDispel", "HARMFUL|RAID", slotOptions)
-    if not added then print("|cffff5555MIUF: native dispel highlight failed: " .. tostring(slotOrError) .. "|r"); container:Hide(); return end
+    if not added then print("|cffff5555MIUF: dispel highlight failed: " .. tostring(slotOrError) .. "|r"); container:Hide(); return end
     local unitSet, unitError = pcall(container.SetUnit, container, frame.MIUF_Unit)
-    if not unitSet then print("|cffff5555MIUF: native dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r"); container:Hide(); return end
+    if not unitSet then print("|cffff5555MIUF: dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r"); container:Hide(); return end
     frame.MIUF_DispelHighlight = container
 end
 
 local function AttachFrameAuras(frame)
-    if not frame or not NATIVE_AURA_TYPES[frame.MIUF_UnitType] or frame.MIUF_NativeAurasAttached then return end
-    frame.MIUF_NativeAurasAttached = true
+    if not frame or not AURA_UNIT_TYPES[frame.MIUF_UnitType] or frame.MIUF_AurasAttached then return end
+    frame.MIUF_AurasAttached = true
     CreateAuraContainer(frame, "buffs")
     CreateAuraContainer(frame, "debuffs")
     if frame.MIUF_UnitType == "player" or frame.MIUF_UnitType == "party" then CreateAuraContainer(frame, "defensives") end
     CreateDispelHighlight(frame)
 end
 
-local function AttachNativeAuras()
+local function AttachAuras()
     if not ns.frames then return end
     for _, frame in pairs(ns.frames) do AttachFrameAuras(frame) end
 end
@@ -265,8 +265,8 @@ function ns.ApplyAuraPositions(unitType, auraType)
 end
 
 function ns.ResizeAuraContainers(frame, width)
-    if not frame or not frame.MIUF_NativeAuras then return end
-    for auraType, data in pairs(frame.MIUF_NativeAuras) do
+    if not frame or not frame.MIUF_Auras then return end
+    for auraType, data in pairs(frame.MIUF_Auras) do
         if data.anchor then data.anchor:SetWidth(width or frame:GetWidth()) end
         ApplyContainerLayout(frame, auraType)
     end
@@ -305,13 +305,13 @@ end
 local deferred = CreateFrame("Frame")
 deferred:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-    AttachNativeAuras()
+    AttachAuras()
 end)
 
 local originalSpawnAllFrames = ns.SpawnAllFrames
 function ns.SpawnAllFrames(...)
     if originalSpawnAllFrames then originalSpawnAllFrames(...) end
-    if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachNativeAuras() end
+    if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachAuras() end
 end
 
-ns.RefreshNativeAuras = AttachNativeAuras
+ns.RefreshAuras = AttachAuras
