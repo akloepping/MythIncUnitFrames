@@ -1,6 +1,6 @@
 local ADDON_NAME, ns = ...
 
-if _G.oUF or not ns.NativeUnitFrames then return end
+if not ns.NativeUnitFrames then return end
 
 -- WoW 12.1 aura data becomes secret in restricted combat contexts. MIUF never
 -- enumerates UnitAura data here; AuraContainer owns filtering and assignment.
