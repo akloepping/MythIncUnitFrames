@@ -1,6 +1,6 @@
 local ADDON_NAME, ns = ...
 
-ns.UnitFrames = true
+ns.UnitFramesLoaded = true
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
