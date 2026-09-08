@@ -7,9 +7,9 @@
 
 Core.lua
 Media.lua
-Native.lua
+UnitFrames.lua
 ClickCasting.lua
 Castbars.lua
-NativeAuras.lua
+Auras.lua
 Groups.lua
 Config.lua
