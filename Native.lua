@@ -244,7 +244,7 @@ local function CreateNativeUnitFrame(unit,name,unitType,positionKey,registerWatc
     local marker=markerFrame:CreateTexture(nil,"OVERLAY"); marker:SetAllPoints(markerFrame); marker:SetTexture(RAID_TARGET_TEXTURE); frame.RaidTargetIndicator=marker
     if unitType=="player" or unitType=="party" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
 
-    frame:RegisterUnitEvent("UNIT_HEALTH",unit); frame:RegisterUnitEvent("UNIT_MAXHEALTH",unit); frame:RegisterUnitEvent("UNIT_POWER_UPDATE",unit); frame:RegisterUnitEvent("UNIT_MAXPOWER",unit); frame:RegisterUnitEvent("UNIT_DISPLAYPOWER",unit); frame:RegisterUnitEvent("UNIT_NAME_UPDATE",unit); frame:RegisterUnitEvent("UNIT_FACTION",unit); frame:RegisterUnitEvent("UNIT_CONNECTION",unit)
+    frame:RegisterUnitEvent("UNIT_HEALTH",unit); frame:RegisterUnitEvent("UNIT_MAXHEALTH",unit); frame:RegisterUnitEvent("UNIT_POWER_UPDATE",unit); frame:RegisterUnitEvent("UNIT_MAXPOWER",unit); frame:RegisterUnitEvent("UNIT_DISPLAYPOWER",unit); frame:RegisterUnitEvent("UNIT_NAME_UPDATE",unit); frame:RegisterUnitEvent("UNIT_FACTION",unit); frame:RegisterUnitEvent("UNIT_CONNECTION",unit); frame:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE",unit); frame:RegisterUnitEvent("UNIT_MODEL_CHANGED",unit)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     if unit=="target" then frame:RegisterEvent("PLAYER_TARGET_CHANGED") elseif unit=="focus" then frame:RegisterEvent("PLAYER_FOCUS_CHANGED") elseif unit=="pet" then frame:RegisterUnitEvent("UNIT_PET","player") elseif unit=="targettarget" then frame:RegisterUnitEvent("UNIT_TARGET","target") end
 
@@ -253,6 +253,7 @@ local function CreateNativeUnitFrame(unit,name,unitType,positionKey,registerWatc
         elseif event=="UNIT_POWER_UPDATE" or event=="UNIT_MAXPOWER" then UpdatePower(self)
         elseif event=="UNIT_DISPLAYPOWER" then UpdatePower(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_NAME_UPDATE" then UpdateName(self)
+        elseif event=="UNIT_PORTRAIT_UPDATE" or event=="UNIT_MODEL_CHANGED" then UpdatePortrait(self)
         elseif event=="RAID_TARGET_UPDATE" then UpdateRaidTarget(self)
         elseif event=="GROUP_ROSTER_UPDATE" and self.MIUF_UnitType=="party" then UpdateFrame(self)
         elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
