@@ -6,10 +6,24 @@ if _G.oUF or not ns.NativeUnitFrames then return end
 -- enumerates UnitAura data here; AuraContainer owns filtering and assignment.
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
-local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs" }
+local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs", defensives = "Defensives" }
 local AURA_TYPES = {
-    buffs = { filter = "HELPFUL|PLAYER" },
-    debuffs = { filter = "HARMFUL" },
+    buffs = {
+        groups = {
+            { key = "buffs", filter = "HELPFUL|PLAYER" },
+        },
+    },
+    debuffs = {
+        groups = {
+            { key = "debuffs", filter = "HARMFUL" },
+        },
+    },
+    defensives = {
+        groups = {
+            { key = "defensivesBig", filter = "HELPFUL|BIG_DEFENSIVE" },
+            { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
+        },
+    },
 }
 -- Match MIUF's established aura coverage. Boss and pet frames intentionally stay
 -- aura-free; partyplayer is covered because it uses the shared "party" unit type.
@@ -110,17 +124,20 @@ local function ApplyContainerLayout(frame, auraType)
     data.anchor:SetSize(width, size)
     PositionAuraAnchor(frame, auraType)
     SetFlowLayout(data.container, flowAnchor, growthX, growthY)
-    if data.container.SetAuraGroupLayout then
-        data.container:SetAuraGroupLayout(auraType, {
-            elementWidth = size,
-            elementHeight = size,
-            elementSpacing = spacing,
-            lineSpacing = spacing,
-        })
+    for _, groupKey in ipairs(data.groupKeys or {}) do
+        if data.container.SetAuraGroupLayout then
+            data.container:SetAuraGroupLayout(groupKey, {
+                elementWidth = size,
+                elementHeight = size,
+                elementSpacing = spacing,
+                lineSpacing = spacing,
+            })
+        end
+        if data.container.SetAuraGroupEnabled then
+            data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false)
+        end
     end
-    if data.container.SetAuraGroupEnabled then
-        data.container:SetAuraGroupEnabled(auraType, layout.enabled ~= false)
-    else
+    if not data.container.SetAuraGroupEnabled then
         data.container:SetShown(layout.enabled ~= false)
     end
 end
@@ -204,23 +221,27 @@ local function CreateAuraContainer(frame, auraType)
     end
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
 
-    local groupOptions = {
-        maxFrameCount = maxCount,
-        candidateFilters = BuildCandidateFilters(auraType),
-        layout = {
-            elementWidth = size,
-            elementHeight = size,
-            elementSpacing = spacing,
-            lineSpacing = spacing,
-        },
-        initializeFrame = function(button) InitializeAuraButton(button, layout) end,
-    }
+    local groupKeys = {}
+    for _, group in ipairs(typeInfo.groups or {}) do
+        local groupOptions = {
+            maxFrameCount = maxCount,
+            candidateFilters = BuildCandidateFilters(auraType),
+            layout = {
+                elementWidth = size,
+                elementHeight = size,
+                elementSpacing = spacing,
+                lineSpacing = spacing,
+            },
+            initializeFrame = function(button) InitializeAuraButton(button, layout) end,
+        }
 
-    local added, addError = pcall(container.AddAuraGroup, container, auraType, typeInfo.filter, groupOptions)
-    if not added then
-        print("|cffff5555MIUF: native " .. auraType .. " group failed: " .. tostring(addError) .. "|r")
-        anchor:Hide()
-        return
+        local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
+        if not added then
+            print("|cffff5555MIUF: native " .. auraType .. " group failed: " .. tostring(addError) .. "|r")
+            anchor:Hide()
+            return
+        end
+        groupKeys[#groupKeys + 1] = group.key
     end
     SetFlowLayout(container, flowAnchor, growthX, growthY)
 
@@ -232,7 +253,7 @@ local function CreateAuraContainer(frame, auraType)
     end
 
     frame.MIUF_NativeAuras = frame.MIUF_NativeAuras or {}
-    frame.MIUF_NativeAuras[auraType] = { container = container, anchor = anchor }
+    frame.MIUF_NativeAuras[auraType] = { container = container, anchor = anchor, groupKeys = groupKeys }
 
     -- Config.lua still uses the legacy oUF field names for its live preview path.
     -- Keep its position calls wired to the real native anchor, but ignore the
@@ -248,6 +269,8 @@ local function CreateAuraContainer(frame, auraType)
         frame.PlayerBuffs = container
     elseif auraType == "debuffs" then
         frame.CombatDebuffs = container
+    elseif auraType == "defensives" then
+        frame.ExternalDefensives = container
     end
 
     CreateAuraMover(frame, auraType, anchor)
@@ -259,6 +282,9 @@ local function AttachFrameAuras(frame)
     frame.MIUF_NativeAurasAttached = true
     CreateAuraContainer(frame, "buffs")
     CreateAuraContainer(frame, "debuffs")
+    if frame.MIUF_UnitType == "player" or frame.MIUF_UnitType == "party" then
+        CreateAuraContainer(frame, "defensives")
+    end
 end
 
 local function AttachNativeAuras()
@@ -275,6 +301,7 @@ function ns.ApplyAuraPositions(unitType, auraType)
             else
                 ApplyContainerLayout(frame, "buffs")
                 ApplyContainerLayout(frame, "debuffs")
+                ApplyContainerLayout(frame, "defensives")
             end
         end
     end
@@ -292,6 +319,7 @@ function ns.ResetAuraPositionsForFrame(frame)
     if not frame then return end
     PositionAuraAnchor(frame, "buffs")
     PositionAuraAnchor(frame, "debuffs")
+    PositionAuraAnchor(frame, "defensives")
 end
 
 function ns.SetAuraMoversLocked(locked)
