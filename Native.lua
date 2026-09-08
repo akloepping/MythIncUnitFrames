@@ -1,7 +1,5 @@
 local ADDON_NAME, ns = ...
 
-if _G.oUF then return end
-
 ns.NativeUnitFrames = true
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
