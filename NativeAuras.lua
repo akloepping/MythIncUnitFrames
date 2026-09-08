@@ -257,7 +257,8 @@ function ns.SetAuraMoversLocked(locked)
             for auraType, mover in pairs(frame.MIUF_AuraMovers) do
                 local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
                 local previewOff = ns.IsUnitTypePreviewEnabled and not ns.IsUnitTypePreviewEnabled(frame.MIUF_UnitType)
-                if locked or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
+                local duplicatePartyMover = frame.MIUF_UnitType == "party" and frame ~= ns.partyAuraMoverOwner
+                if locked or duplicatePartyMover or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
             end
         end
     end
@@ -270,7 +271,8 @@ function ns.PreviewAuraMover(unitType, auraType, enabled)
         if frame.MIUF_UnitType == unitType and frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType] then
             local mover = frame.MIUF_AuraMovers[auraType]
             local previewOn = not ns.IsUnitTypePreviewEnabled or ns.IsUnitTypePreviewEnabled(unitType)
-            if enabled and previewOn and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
+            local duplicatePartyMover = unitType == "party" and frame ~= ns.partyAuraMoverOwner
+            if enabled and not duplicatePartyMover and previewOn and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
         end
     end
 end
