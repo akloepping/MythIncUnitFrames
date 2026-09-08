@@ -8,7 +8,7 @@ local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs" }
 local AURA_TYPES = {
-    buffs = { filter = "HELPFUL" },
+    buffs = { filter = "HELPFUL|PLAYER" },
     debuffs = { filter = "HARMFUL" },
 }
 -- Match MIUF's established aura coverage. Boss and pet frames intentionally stay
@@ -20,6 +20,26 @@ local NATIVE_AURA_TYPES = {
     party = true,
     targettarget = true,
 }
+
+local function BuildCandidateFilters(auraType)
+    if auraType ~= "buffs" then return {} end
+
+    local includeSpellIDs = {}
+    local tracked = ns.GetTrackedBuffs and ns.GetTrackedBuffs() or {}
+    local count = 0
+    for spellID in pairs(tracked) do
+        local id = tonumber(spellID)
+        if id then
+            includeSpellIDs[id] = true
+            count = count + 1
+        end
+    end
+
+    -- An explicit impossible spell ID keeps an empty tracked list from behaving
+    -- like an unfiltered group if the client treats an empty include map as absent.
+    if count == 0 then includeSpellIDs[0] = true end
+    return { includeSpellIDs = includeSpellIDs }
+end
 
 local function GetAnchor(layout)
     local anchor = layout.anchor == "BOTTOM" and "BOTTOM" or "TOP"
@@ -111,13 +131,17 @@ local function SaveDraggedAuraPosition(frame, auraType, anchor)
     local point, relativePoint = GetAnchor(layout)
     local x, y = 0, 0
     if point == "BOTTOMLEFT" and relativePoint == "TOPLEFT" then
-        x = (anchor:GetLeft() or 0) - (frame:GetLeft() or 0); y = (anchor:GetBottom() or 0) - (frame:GetTop() or 0)
+        x = (anchor:GetLeft() or 0) - (frame:GetLeft() or 0)
+        y = (anchor:GetBottom() or 0) - (frame:GetTop() or 0)
     elseif point == "BOTTOMRIGHT" and relativePoint == "TOPRIGHT" then
-        x = (anchor:GetRight() or 0) - (frame:GetRight() or 0); y = (anchor:GetBottom() or 0) - (frame:GetTop() or 0)
+        x = (anchor:GetRight() or 0) - (frame:GetRight() or 0)
+        y = (anchor:GetBottom() or 0) - (frame:GetTop() or 0)
     elseif point == "TOPLEFT" and relativePoint == "BOTTOMLEFT" then
-        x = (anchor:GetLeft() or 0) - (frame:GetLeft() or 0); y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
+        x = (anchor:GetLeft() or 0) - (frame:GetLeft() or 0)
+        y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
     elseif point == "TOPRIGHT" and relativePoint == "BOTTOMRIGHT" then
-        x = (anchor:GetRight() or 0) - (frame:GetRight() or 0); y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
+        x = (anchor:GetRight() or 0) - (frame:GetRight() or 0)
+        y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
     end
     ns.SaveAuraLayout(frame.MIUF_UnitType, auraType, {
         xOffset = math.floor(x + (x >= 0 and 0.5 or -0.5)),
@@ -138,16 +162,21 @@ local function CreateAuraMover(frame, auraType, anchor)
     mover:SetBackdropBorderColor(0.75, 0.45, 1, 1)
     mover:EnableMouse(true)
     mover:RegisterForDrag("LeftButton")
+
     local label = mover:CreateFontString(nil, "OVERLAY")
     label:SetFont(FONT, 10, "OUTLINE")
     label:SetPoint("CENTER")
     label:SetText((frame.MIUF_UnitType or frame.MIUF_Unit) .. " " .. AURA_LABELS[auraType])
-    mover:SetScript("OnDragStart", function() if not InCombatLockdown() then anchor:StartMoving() end end)
+
+    mover:SetScript("OnDragStart", function()
+        if not InCombatLockdown() then anchor:StartMoving() end
+    end)
     mover:SetScript("OnDragStop", function()
         anchor:StopMovingOrSizing()
         if not InCombatLockdown() then SaveDraggedAuraPosition(frame, auraType, anchor) end
     end)
     mover:Hide()
+
     frame.MIUF_AuraMovers = frame.MIUF_AuraMovers or {}
     frame.MIUF_AuraMovers[auraType] = mover
 end
@@ -177,8 +206,13 @@ local function CreateAuraContainer(frame, auraType)
 
     local groupOptions = {
         maxFrameCount = maxCount,
-        candidateFilters = {},
-        layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
+        candidateFilters = BuildCandidateFilters(auraType),
+        layout = {
+            elementWidth = size,
+            elementHeight = size,
+            elementSpacing = spacing,
+            lineSpacing = spacing,
+        },
         initializeFrame = function(button) InitializeAuraButton(button, layout) end,
     }
 
@@ -203,8 +237,7 @@ local function CreateAuraContainer(frame, auraType)
     -- Config.lua still uses the legacy oUF field names for its live preview path.
     -- Keep its position calls wired to the real native anchor, but ignore the
     -- legacy preview height mutation. Changing this anchor's height moves the
-    -- AuraContainer because its flow origin is attached to the anchor edge, which
-    -- made auras jump when opening Config and again after a reload.
+    -- AuraContainer because its flow origin is attached to the anchor edge.
     local previewAnchor = {}
     function previewAnchor:SetHeight(_) end
     function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end
@@ -237,8 +270,12 @@ function ns.ApplyAuraPositions(unitType, auraType)
     if InCombatLockdown() or not ns.frames then return end
     for _, frame in pairs(ns.frames) do
         if frame.MIUF_UnitType == unitType then
-            if auraType then ApplyContainerLayout(frame, auraType)
-            else ApplyContainerLayout(frame, "buffs"); ApplyContainerLayout(frame, "debuffs") end
+            if auraType then
+                ApplyContainerLayout(frame, auraType)
+            else
+                ApplyContainerLayout(frame, "buffs")
+                ApplyContainerLayout(frame, "debuffs")
+            end
         end
     end
 end
@@ -264,7 +301,11 @@ function ns.SetAuraMoversLocked(locked)
             for auraType, mover in pairs(frame.MIUF_AuraMovers) do
                 local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
                 local previewOff = ns.IsUnitTypePreviewEnabled and not ns.IsUnitTypePreviewEnabled(frame.MIUF_UnitType)
-                if locked or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
+                if locked or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then
+                    mover:Hide()
+                else
+                    mover:Show()
+                end
             end
         end
     end
@@ -277,7 +318,11 @@ function ns.PreviewAuraMover(unitType, auraType, enabled)
         if frame.MIUF_UnitType == unitType and frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType] then
             local mover = frame.MIUF_AuraMovers[auraType]
             local previewOn = not ns.IsUnitTypePreviewEnabled or ns.IsUnitTypePreviewEnabled(unitType)
-            if enabled and previewOn and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
+            if enabled and previewOn and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then
+                mover:Show()
+            else
+                mover:Hide()
+            end
         end
     end
 end
@@ -291,7 +336,11 @@ end)
 local originalSpawnAllFrames = ns.SpawnAllFrames
 function ns.SpawnAllFrames(...)
     if originalSpawnAllFrames then originalSpawnAllFrames(...) end
-    if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachNativeAuras() end
+    if InCombatLockdown() then
+        deferred:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+        AttachNativeAuras()
+    end
 end
 
 ns.RefreshNativeAuras = AttachNativeAuras
