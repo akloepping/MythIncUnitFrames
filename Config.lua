@@ -35,7 +35,9 @@ local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local pendingEnabled, pendingAuraLayouts = {}, {}
-local pendingTrackedBuffs, pendingPartyIncludePlayer
+local pendingTrackedBuffs
+local pendingFrameSettings, pendingGroupLayouts = {}, {}
+local MarkPending
 local hasPendingChanges = false
 local previewFrameType
 local previewAuraUnitType, previewAuraType
@@ -82,13 +84,15 @@ local function MakeSection(parent,title,width,height)
 end
 
 local function RestoreFramePreview(unitType)
+    if InCombatLockdown() then return end
     unitType=unitType or previewFrameType
     if unitType and ns.ApplyFrameType then ns.ApplyFrameType(unitType) end
+    if unitType and ns.ResetGroupPreview then ns.ResetGroupPreview(unitType) end
     if previewFrameType==unitType then previewFrameType=nil end
 end
 
 local function PreviewFrameSliders()
-    if refreshing or InCombatLockdown() or not ns.PreviewFrameType then return end
+    if refreshing then return end
     local width,height=Round(widthSlider:GetValue()),Round(heightSlider:GetValue())
     local powerPercent=Round(powerSlider:GetValue())
     local portraitPercent=Round(portraitSlider:GetValue())
@@ -109,31 +113,17 @@ local function PreviewFrameSliders()
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
+    pendingFrameSettings[selectedType]={size={width=width,height=height},powerPercent=powerPercent,appearance=working}
+    MarkPending("Configuration changes are pending.")
+    if InCombatLockdown() or not ns.PreviewFrameType then return end
     ns.PreviewFrameType(selectedType,{
         size={width=width,height=height},
         powerPercent=powerPercent,
-        appearance={
-            texture=working.texture,
-            fontFace=working.fontFace,
-            fontSize=fontSize,
-            showPortrait=working.showPortrait,
-            portraitSide=working.portraitSide,
-            portraitPercent=portraitPercent,
-            backgroundOpacity=backgroundOpacity,
-            borderOpacity=borderOpacity,
-            nameXOffset=nameX,
-            nameYOffset=nameY,
-            healthXOffset=healthX,
-            healthYOffset=healthY,
-            showRoleIcon=working.showRoleIcon,
-            roleIconXOffset=roleX,
-            roleIconYOffset=roleY,
-            showRaidMarker=working.showRaidMarker,
-            raidMarkerSize=raidSize,
-            raidMarkerXOffset=raidX,
-            raidMarkerYOffset=raidY,
-        },
+        appearance=working,
     })
+    if ns.PreviewGroupLayout and (selectedType=="party" or selectedType=="boss") then
+        ns.PreviewGroupLayout(selectedType,groupWorking,{width=width,height=height})
+    end
     previewFrameType=selectedType
 end
 
@@ -175,6 +165,7 @@ local function ApplyAuraVisual(unitType,auraType,layout)
 end
 
 local function RestoreAuraPreview()
+    if InCombatLockdown() then return end
     if previewAuraUnitType and previewAuraType then ApplyAuraVisual(previewAuraUnitType,previewAuraType,ns.GetAuraLayout(previewAuraUnitType,previewAuraType)) end
     previewAuraUnitType,previewAuraType=nil,nil
 end
@@ -200,11 +191,47 @@ local function ChooseAvailableAura()
     for _,auraType in ipairs(AURA_TYPES) do if AuraAvailable(selectedType,auraType) then selectedAura=auraType; return end end
 end
 
-local function MarkPending(message)
-    hasPendingChanges=true; if applyChangesButton then applyChangesButton:SetEnabled(true) end
-    if statusText and message then statusText:SetText(message.."  Click Apply Changes when ready.") end
+-- Compare only staged fields: aura edits are sparse, frame/group edits are snapshots.
+local function MatchesSaved(values,saved)
+    if type(values)~="table" then return values==saved end
+    if type(saved)~="table" then return false end
+    for key,value in pairs(values) do
+        if not MatchesSaved(value,saved[key]) then return false end
+    end
+    return true
 end
 
+MarkPending=function(message)
+    for unitType,values in pairs(pendingFrameSettings) do
+        if MatchesSaved(values.size,ns.GetSize(unitType))
+            and values.powerPercent==ns.GetPowerPercent(unitType)
+            and MatchesSaved(values.appearance,ns.GetAppearance(unitType)) then
+            pendingFrameSettings[unitType]=nil
+        end
+    end
+    for unitType,values in pairs(pendingGroupLayouts) do
+        if MatchesSaved(values,ns.GetGroupLayout(unitType)) then pendingGroupLayouts[unitType]=nil end
+    end
+    for unitType,enabled in pairs(pendingEnabled) do
+        if enabled==ns.IsFrameTypeEnabled(unitType) then pendingEnabled[unitType]=nil end
+    end
+    for unitType,auraTypes in pairs(pendingAuraLayouts) do
+        for auraType,values in pairs(auraTypes) do
+            if MatchesSaved(values,ns.GetAuraLayout(unitType,auraType)) then auraTypes[auraType]=nil end
+        end
+        if not next(auraTypes) then pendingAuraLayouts[unitType]=nil end
+    end
+    if pendingTrackedBuffs and MatchesSaved(pendingTrackedBuffs,ns.GetTrackedBuffs())
+        and MatchesSaved(ns.GetTrackedBuffs(),pendingTrackedBuffs) then pendingTrackedBuffs=nil end
+    hasPendingChanges=next(pendingFrameSettings)~=nil or next(pendingGroupLayouts)~=nil
+        or next(pendingEnabled)~=nil or next(pendingAuraLayouts)~=nil or pendingTrackedBuffs~=nil
+    if applyChangesButton then applyChangesButton:SetEnabled(hasPendingChanges and not InCombatLockdown()) end
+    if statusText then
+        statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat."
+            or (hasPendingChanges and ((message or "Changes are pending.").."  Click Apply Changes when ready.")
+            or "No pending changes."))
+    end
+end
 local function GetPendingEnabled(unitType)
     if pendingEnabled[unitType]~=nil then return pendingEnabled[unitType] end
     return ns.IsFrameTypeEnabled(unitType)
@@ -218,15 +245,35 @@ local function GetPendingAuraLayout(unitType,auraType)
     return result
 end
 
-local function CopyWorking()
-    working={}; for k,v in pairs(ns.GetAppearance(selectedType)) do working[k]=v end
-    ChooseAvailableAura(); auraWorking={}; local aura=GetPendingAuraLayout(selectedType,selectedAura); if aura then for k,v in pairs(aura) do auraWorking[k]=v end end
-    groupWorking={}; if selectedType=="party" or selectedType=="boss" then
-        local layout=ns.GetGroupLayout(selectedType); if layout then for k,v in pairs(layout) do groupWorking[k]=v end end
-        if selectedType=="party" and pendingPartyIncludePlayer~=nil then groupWorking.includePlayer=pendingPartyIncludePlayer end
-    end
+local function CopyValues(source)
+    local result={}
+    for k,v in pairs(source or {}) do result[k]=type(v)=="table" and CopyValues(v) or v end
+    return result
 end
 
+local function CopyWorking()
+    local pending=pendingFrameSettings[selectedType]
+    working=CopyValues(pending and pending.appearance or ns.GetAppearance(selectedType))
+    ChooseAvailableAura(); auraWorking=GetPendingAuraLayout(selectedType,selectedAura) or {}
+    groupWorking=CopyValues(pendingGroupLayouts[selectedType] or ns.GetGroupLayout(selectedType))
+end
+
+local function StageGroupControls()
+    if refreshing or (selectedType~="party" and selectedType~="boss") then return end
+    pendingGroupLayouts[selectedType]=CopyValues(groupWorking)
+    MarkPending("Group layout changes are pending.")
+end
+
+local function StageFrameReset(unitType)
+    pendingFrameSettings[unitType]={
+        size=CopyValues(ns.defaultSizes[unitType]),
+        powerPercent=ns.defaultBarLayout[unitType].powerPercent,
+        appearance=CopyValues(ns.defaultAppearance[unitType]),
+    }
+    if ns.defaultGroupLayout[unitType] then
+        pendingGroupLayouts[unitType]=CopyValues(ns.defaultGroupLayout[unitType])
+    end
+end
 local function StageAuraValue(key,value)
     if refreshing or not AuraAvailable(selectedType,selectedAura) then return end
     pendingAuraLayouts[selectedType]=pendingAuraLayouts[selectedType] or {}; pendingAuraLayouts[selectedType][selectedAura]=pendingAuraLayouts[selectedType][selectedAura] or {}
@@ -253,6 +300,7 @@ local function RefreshGroupControls()
 end
 
 local function RefreshAuraControls()
+    local wasRefreshing=refreshing; refreshing=true
     local available=AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize~=nil
     auraLabel:SetText("Aura layout: "..(AURA_NAMES[selectedAura] or selectedAura))
     for _,slider in ipairs({auraSizeSlider,auraCountSlider,auraSpacingSlider,auraXSlider,auraYSlider}) do if available then slider:Enable() else slider:Disable() end end
@@ -264,6 +312,7 @@ local function RefreshAuraControls()
     else
         auraEnableButton:SetText("Enabled: N/A"); auraTextButton:SetText("Text: N/A"); auraAnchorButton:SetText("Anchor: N/A"); auraGrowthButton:SetText("Grow: N/A")
     end
+    refreshing=wasRefreshing
 end
 
 local function CopyTracked(source)
@@ -335,7 +384,7 @@ end
 
 function ns.RefreshConfig()
     if not config or not config:IsShown() then return end
-    refreshing=true; CopyWorking()
+    refreshing=true; MarkPending(); CopyWorking()
     for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(GetPendingEnabled(unitType)) end
     if selectedPage=="profiles" then
         selectedLabel:SetText("Profiles")
@@ -347,7 +396,7 @@ function ns.RefreshConfig()
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
-        local size=ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
+        local pending=pendingFrameSettings[selectedType]; local size=pending and pending.size or ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(pending and pending.powerPercent or ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
         raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
@@ -358,37 +407,28 @@ function ns.RefreshConfig()
     else
         RefreshProfilesControls()
     end
-    statusText:SetText(InCombatLockdown() and "Changes are disabled during combat." or (hasPendingChanges and "Pending protected changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Appearance changes use Apply Frame; protected changes use Apply Changes.")))
+    statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (hasPendingChanges and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
+    applyChangesButton:SetEnabled(hasPendingChanges and not InCombatLockdown())
     refreshing=false
-    if selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
+    if not InCombatLockdown() and selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
 end
 
-local function ApplySelected()
-    if refreshing or InCombatLockdown() then return end
-    ns.SaveSize(selectedType,Round(widthSlider:GetValue()),Round(heightSlider:GetValue())); ns.SavePowerPercent(selectedType,Round(powerSlider:GetValue()))
-    working.fontSize=Round(fontSlider:GetValue()); working.portraitPercent=Round(portraitSlider:GetValue()); working.backgroundOpacity=Round(bgSlider:GetValue()); working.borderOpacity=Round(borderSlider:GetValue())
-    working.nameXOffset=Round(nameXSlider:GetValue()); working.nameYOffset=Round(nameYSlider:GetValue()); working.healthXOffset=Round(healthXSlider:GetValue()); working.healthYOffset=Round(healthYSlider:GetValue())
-    working.roleIconXOffset=Round(roleXSlider:GetValue()); working.roleIconYOffset=Round(roleYSlider:GetValue())
-    working.raidMarkerXOffset=Round(raidXSlider:GetValue()); working.raidMarkerYOffset=Round(raidYSlider:GetValue()); working.raidMarkerSize=Round(raidSizeSlider:GetValue())
-    ns.SaveAppearance(selectedType,working)
-    if selectedType=="party" or selectedType=="boss" then
-        ns.SaveGroupLayout(selectedType,{orientation=groupWorking.orientation or "VERTICAL",direction=groupWorking.direction or "DOWN",spacing=Round(partySpacingSlider:GetValue())})
-    end
-    previewFrameType=nil
-    ns.ApplyFrameType(selectedType); statusText:SetText(DISPLAY_NAMES[selectedType].." appearance applied.")
-end
-
 local function ApplyPendingChanges()
     if InCombatLockdown() or not hasPendingChanges then return end
+    for unitType,values in pairs(pendingFrameSettings) do
+        ns.SaveSize(unitType,values.size.width,values.size.height)
+        ns.SavePowerPercent(unitType,values.powerPercent)
+        ns.SaveAppearance(unitType,values.appearance)
+    end
+    for unitType,values in pairs(pendingGroupLayouts) do ns.SaveGroupLayout(unitType,values) end
     for unitType,enabled in pairs(pendingEnabled) do ns.SetFrameTypeEnabled(unitType,enabled) end
     for unitType,auraTypes in pairs(pendingAuraLayouts) do for auraType,values in pairs(auraTypes) do ns.SaveAuraLayout(unitType,auraType,values) end end
-    if pendingPartyIncludePlayer~=nil then ns.SaveGroupLayout("party",{includePlayer=pendingPartyIncludePlayer}) end
     if pendingTrackedBuffs then ns.SetTrackedBuffs(pendingTrackedBuffs) end
-    pendingEnabled={}; pendingAuraLayouts={}; pendingPartyIncludePlayer=nil; pendingTrackedBuffs=nil; hasPendingChanges=false
+    pendingEnabled={}; pendingAuraLayouts={}; pendingFrameSettings={}; pendingGroupLayouts={}; pendingTrackedBuffs=nil; hasPendingChanges=false
     previewAuraUnitType,previewAuraType=nil,nil
-    ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true); ReloadUI()
+    previewFrameType=nil; applyChangesButton:SetEnabled(false); ReloadUI()
 end
 
 local function SelectPage(page)
@@ -413,7 +453,7 @@ local function CreateShell()
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
         local check=CreateFrame("CheckButton",nil,row,"UICheckButtonTemplate"); check:SetSize(24,24); check:SetPoint("LEFT"); check:SetScript("OnClick",function(self)
-            if InCombatLockdown() then self:SetChecked(ns.IsFrameTypeEnabled(unitType)); return end
+            if InCombatLockdown() then self:SetChecked(GetPendingEnabled(unitType)); return end
             pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
@@ -424,7 +464,13 @@ local function CreateShell()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyPendingChanges)
-    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; previewAuraUnitType=nil; previewAuraType=nil; ns.ResetAllSettings(); ns.ResetLayout(); ns.RefreshConfig() end end)
+    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
+        for _,unitType in ipairs(FRAME_TYPES) do
+            StageFrameReset(unitType)
+            pendingEnabled[unitType]=ns.defaultEnabled[unitType]
+            pendingAuraLayouts[unitType]=CopyValues(ns.defaultAuraLayout[unitType])
+        end
+        pendingTrackedBuffs={}; MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
     statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
@@ -439,14 +485,14 @@ local function CreateFramesPage()
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     portraitSlider=MakeSlider(layout,"PortraitPercent","Portrait width (%)",12,40,1,285); portraitSlider:SetPoint("TOPLEFT",20,-222); portraitSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    portraitButton=MakeButton(layout,"Portrait: Off",118,26); portraitButton:SetPoint("TOPLEFT",15,-282); portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls() end)
-    sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls() end)
+    portraitButton=MakeButton(layout,"Portrait: Off",118,26); portraitButton:SetPoint("TOPLEFT",15,-282); portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls(); PreviewFrameSliders() end)
+    sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
     local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
-    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; RefreshGroupControls() end)
-    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; RefreshGroupControls() end)
-    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; pendingPartyIncludePlayer=groupWorking.includePlayer; RefreshGroupControls(); MarkPending("Party player inclusion staged.") end)
-    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); PreviewFrameSliders() end end)
+    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
     fontMenu=CreateFrame("Frame",nil,text,"BackdropTemplate"); fontMenu:SetWidth(190); fontMenu:SetHeight((#ns.Media.fontOrder*24)+8); fontMenu:SetPoint("TOPLEFT",fontButton,"BOTTOMLEFT",0,-2); fontMenu:SetFrameLevel(text:GetFrameLevel()+20)
@@ -458,10 +504,10 @@ local function CreateFramesPage()
     end
     fontButton:SetScript("OnClick",function() if textureMenu then textureMenu:Hide() end; if fontMenu:IsShown() then fontMenu:Hide() else fontMenu:Show() end end)
     fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls() end)
+    nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls(); PreviewFrameSliders() end)
     nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172); nameYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls() end)
+    healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls(); PreviewFrameSliders() end)
     healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
@@ -475,8 +521,8 @@ local function CreateFramesPage()
         choice:SetScript("OnClick",function() working.texture=key; textureMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
     end
     textureButton:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu:IsShown() then textureMenu:Hide() else textureMenu:Show() end end)
-    healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
-    powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls() end)
+    healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
+    powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
     bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
@@ -488,8 +534,7 @@ local function CreateFramesPage()
     raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
-    local apply=MakeButton(framesPage,"Apply Frame",100,28); apply:SetPoint("BOTTOMLEFT",20,8); apply:SetScript("OnClick",ApplySelected)
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
+    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); StageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -507,7 +552,7 @@ local function CreateAurasPage()
     auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end end)
     auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end end)
     local function StageAuraPosition()
-        if refreshing or InCombatLockdown() or not AuraAvailable(selectedType,selectedAura) then return end
+        if refreshing or not AuraAvailable(selectedType,selectedAura) then return end
         local x,y=Round(auraXSlider:GetValue()),Round(auraYSlider:GetValue())
         StageAuraValue("xOffset",x); StageAuraValue("yOffset",y); PreviewAuraSliders()
     end
@@ -529,7 +574,7 @@ local function CreateAurasPage()
     local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
     manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
-    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); ns.ResetAuraLayout(selectedType,selectedAura); ns.RefreshConfig() end end)
+    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end; pendingAuraLayouts[selectedType]=pendingAuraLayouts[selectedType] or {}; pendingAuraLayouts[selectedType][selectedAura]=CopyValues(ns.defaultAuraLayout[selectedType][selectedAura]); MarkPending("Aura reset is pending."); ns.RefreshConfig() end end)
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -556,7 +601,7 @@ local function CreateProfilesPage()
 
     local use=MakeButton(section,"Use Profile",120,28); use:SetPoint("TOPLEFT",275,-158); use:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be switched during combat.",true); return end
-        if hasPendingChanges then SetProfileStatus("Apply the pending protected changes before switching profiles.",true); return end
+        if hasPendingChanges then SetProfileStatus("Apply pending changes before switching profiles.",true); return end
         local target=selectedProfileName or ns.GetActiveProfileName()
         if target==ns.GetActiveProfileName() then SetProfileStatus(target.." is already active.",false); return end
         local ok,msg=ns.SetActiveProfile(target)
@@ -610,4 +655,4 @@ end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
 
-local combatWatcher=CreateFrame("Frame"); combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:SetScript("OnEvent",function() if config and config:IsShown() then ns.RefreshConfig() end end)
+local combatWatcher=CreateFrame("Frame"); combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:SetScript("OnEvent",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end; if config and config:IsShown() then ns.RefreshConfig() end end)
