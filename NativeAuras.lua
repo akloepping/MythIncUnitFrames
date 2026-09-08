@@ -201,9 +201,16 @@ local function CreateAuraContainer(frame, auraType)
     frame.MIUF_NativeAuras[auraType] = { container = container, anchor = anchor }
 
     -- Config.lua still uses the legacy oUF field names for its live preview path.
-    -- Expose native containers through those same fields and point MIUF_Anchor at
-    -- the native movable anchor so X/Y sliders and anchor changes update instantly.
-    container.MIUF_Anchor = anchor
+    -- Keep its position calls wired to the real native anchor, but ignore the
+    -- legacy preview height mutation. Changing this anchor's height moves the
+    -- AuraContainer because its flow origin is attached to the anchor edge, which
+    -- made auras jump when opening Config and again after a reload.
+    local previewAnchor = {}
+    function previewAnchor:SetHeight(_) end
+    function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end
+    function previewAnchor:SetPoint(...) anchor:SetPoint(...) end
+    container.MIUF_Anchor = previewAnchor
+
     if auraType == "buffs" then
         frame.PlayerBuffs = container
     elseif auraType == "debuffs" then
