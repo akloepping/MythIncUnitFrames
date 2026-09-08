@@ -1,9 +1,9 @@
 local ADDON_NAME, ns = ...
 
-if not ns.NativeUnitFrames then return end
+if not ns.UnitFrames then return end
 
 -- ClickCastFrames is the long-standing shared registration table used by
--- Clique and other click-casting addons. Native MIUF frames are already
+-- Clique and other click-casting addons. MIUF frames are already
 -- SecureUnitButtonTemplate buttons with a secure "unit" attribute, so they
 -- only need to be advertised through this table.
 _G.ClickCastFrames = _G.ClickCastFrames or {}
