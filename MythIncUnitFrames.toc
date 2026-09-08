@@ -11,5 +11,6 @@ Media.lua
 Native.lua
 ClickCasting.lua
 Castbars.lua
+NativeAuras.lua
 Groups.lua
 Config.lua
