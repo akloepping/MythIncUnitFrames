@@ -59,6 +59,12 @@ for unitType in pairs(defaultSizes) do
         portraitSide = "LEFT",
         portraitPercent = 22,
         showRoleIcon = false,
+        roleIconXOffset = 3,
+        roleIconYOffset = -3,
+        showRaidMarker = true,
+        raidMarkerSize = 20,
+        raidMarkerXOffset = 0,
+        raidMarkerYOffset = 2,
     }
     defaultAuraLayout[unitType] = {
         buffs = { enabled = true, showText = true, iconSize = 22, maxCount = 6, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 5 },
