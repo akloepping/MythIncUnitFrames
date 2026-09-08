@@ -3,7 +3,6 @@
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
 ## Version: 0.10.0-alpha
-## OptionalDeps: Clique
 ## SavedVariables: MythIncUnitFramesDB
 
 Core.lua
