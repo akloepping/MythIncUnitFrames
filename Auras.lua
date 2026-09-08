@@ -278,8 +278,7 @@ function ns.ResetAuraPositionsForFrame(frame)
 end
 
 function ns.SetAuraMoversLocked(locked)
-    if not ns.frames then return end
-    for _, frame in pairs(ns.frames) do
+    for _, frame in pairs(ns.frames or {}) do
         if frame.MIUF_AuraMovers then
             for auraType, mover in pairs(frame.MIUF_AuraMovers) do
                 local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
