@@ -158,11 +158,11 @@ local function ApplyColors(frame, appearance)
 end
 
 local function ApplyIndicatorLayout(frame, appearance)
-    if frame.RaidTargetIndicator then
+    if frame.RaidTargetIndicatorFrame then
         local size = math.max(8, tonumber(appearance.raidMarkerSize) or 20)
-        frame.RaidTargetIndicator:SetSize(size, size)
-        frame.RaidTargetIndicator:ClearAllPoints()
-        frame.RaidTargetIndicator:SetPoint("CENTER", frame, "TOP", appearance.raidMarkerXOffset or 0, appearance.raidMarkerYOffset or 2)
+        frame.RaidTargetIndicatorFrame:SetSize(size, size)
+        frame.RaidTargetIndicatorFrame:ClearAllPoints()
+        frame.RaidTargetIndicatorFrame:SetPoint("CENTER", frame, "TOP", appearance.raidMarkerXOffset or 0, appearance.raidMarkerYOffset or 2)
     end
 
     if frame.GroupRoleIndicator then
@@ -172,16 +172,17 @@ local function ApplyIndicatorLayout(frame, appearance)
 end
 
 local function UpdateRaidTarget(frame, appearance)
+    local holder = frame.RaidTargetIndicatorFrame
     local icon = frame.RaidTargetIndicator
-    if not icon then return end
+    if not holder or not icon then return end
     appearance = appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     if appearance.showRaidMarker == false then
-        icon:Hide()
+        holder:Hide()
         return
     end
 
     if not frame.MIUF_Unit or not UnitExists(frame.MIUF_Unit) then
-        icon:Hide()
+        holder:Hide()
         return
     end
 
@@ -189,9 +190,9 @@ local function UpdateRaidTarget(frame, appearance)
     if index then
         icon:SetTexture(RAID_TARGET_TEXTURE)
         SetRaidTargetIconTexture(icon, index)
-        icon:Show()
+        holder:Show()
     else
-        icon:Hide()
+        holder:Hide()
     end
 end
 
@@ -436,11 +437,16 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     frame.Portrait = portrait
 
-    local raidTarget = frame:CreateTexture(nil, "OVERLAY", nil, 7)
+    local raidTargetFrame = CreateFrame("Frame", nil, frame)
+    raidTargetFrame:SetFrameLevel(frame.Border:GetFrameLevel() + 5)
+    raidTargetFrame:SetSize(20, 20)
+    raidTargetFrame:SetPoint("CENTER", frame, "TOP", 0, 2)
+    raidTargetFrame:Hide()
+    frame.RaidTargetIndicatorFrame = raidTargetFrame
+
+    local raidTarget = raidTargetFrame:CreateTexture(nil, "OVERLAY")
+    raidTarget:SetAllPoints(raidTargetFrame)
     raidTarget:SetTexture(RAID_TARGET_TEXTURE)
-    raidTarget:SetSize(20, 20)
-    raidTarget:SetPoint("CENTER", frame, "TOP", 0, 2)
-    raidTarget:Hide()
     frame.RaidTargetIndicator = raidTarget
 
     if unitType == "player" or unitType == "party" then
