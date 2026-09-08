@@ -499,6 +499,14 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
         elseif event == "UNIT_FACTION" or event == "UNIT_CONNECTION" then
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
+        elseif event == "UNIT_TARGET" and self.MIUF_Unit == "targettarget" then
+            UpdateFrame(self)
+            C_Timer.After(0.05, function()
+                if self.MIUF_Unit == "targettarget" then UpdateFrame(self) end
+            end)
+            C_Timer.After(0.20, function()
+                if self.MIUF_Unit == "targettarget" then UpdateFrame(self) end
+            end)
         else
             UpdateFrame(self)
         end
