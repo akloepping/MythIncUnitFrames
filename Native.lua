@@ -221,6 +221,29 @@ local function UpdateRoleIndicator(frame, appearance)
     end
 end
 
+local function UpdateConnectionState(frame)
+    local text = frame.OfflineText
+    local unit = frame.MIUF_Unit
+    if not text or not unit or not UnitExists(unit) then
+        if text then text:Hide() end
+        return
+    end
+
+    local connected = UnitIsConnected(unit)
+    if canaccessvalue and not canaccessvalue(connected) then
+        text:Hide()
+        return
+    end
+
+    if connected == false then
+        frame.Health:SetStatusBarColor(0.32, 0.32, 0.32, 1)
+        frame.Power:SetStatusBarColor(0.20, 0.20, 0.20, 1)
+        text:Show()
+    else
+        text:Hide()
+    end
+end
+
 local function UpdateFrame(frame)
     UpdateHealth(frame)
     UpdatePower(frame)
@@ -231,6 +254,7 @@ local function UpdateFrame(frame)
     ApplyIndicatorLayout(frame, appearance)
     UpdateRaidTarget(frame, appearance)
     UpdateRoleIndicator(frame, appearance)
+    UpdateConnectionState(frame)
 end
 
 local function ApplyFrameState(frame, state)
@@ -296,6 +320,7 @@ local function ApplyFrameState(frame, state)
     ApplyIndicatorLayout(frame, appearance)
     UpdateRoleIndicator(frame, appearance)
     UpdateRaidTarget(frame, appearance)
+    UpdateConnectionState(frame)
 end
 
 local function CreateMover(frame, labelText, positionKey)
@@ -433,6 +458,13 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     healthText:SetJustifyH("RIGHT")
     frame.HealthText = healthText
 
+    local offlineText = health:CreateFontString(nil, "OVERLAY")
+    offlineText:SetFont(FONT, 10, "OUTLINE")
+    offlineText:SetPoint("CENTER", health, "CENTER", 0, 0)
+    offlineText:SetText("OFFLINE")
+    offlineText:Hide()
+    frame.OfflineText = offlineText
+
     local portrait = frame:CreateTexture(nil, "ARTWORK")
     portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     frame.Portrait = portrait
@@ -488,6 +520,7 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
         elseif event == "UNIT_DISPLAYPOWER" then
             UpdatePower(self)
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
+            UpdateConnectionState(self)
         elseif event == "UNIT_NAME_UPDATE" then
             UpdateName(self)
         elseif event == "RAID_TARGET_UPDATE" then
@@ -497,8 +530,12 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
         elseif event == "PLAYER_ROLES_ASSIGNED" or event == "GROUP_ROSTER_UPDATE" then
             UpdateRoleIndicator(self)
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
-        elseif event == "UNIT_FACTION" or event == "UNIT_CONNECTION" then
+            UpdateConnectionState(self)
+        elseif event == "UNIT_CONNECTION" then
+            UpdateFrame(self)
+        elseif event == "UNIT_FACTION" then
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
+            UpdateConnectionState(self)
         elseif event == "UNIT_TARGET" and self.MIUF_Unit == "targettarget" then
             UpdateFrame(self)
             C_Timer.After(0.05, function()
@@ -619,6 +656,27 @@ function ns.SpawnAllFrames()
     if ns.ApplyBossLayout then ns.ApplyBossLayout() end
     ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
+
+local rangeWatcher = CreateFrame("Frame")
+local rangeElapsed = 0
+rangeWatcher:SetScript("OnUpdate", function(_, elapsed)
+    rangeElapsed = rangeElapsed + elapsed
+    if rangeElapsed < 0.25 then return end
+    rangeElapsed = 0
+
+    for _, frame in pairs(frames) do
+        if frame.MIUF_UnitType == "party" and frame.MIUF_Unit ~= "player" and UnitExists(frame.MIUF_Unit) then
+            local inRange = UnitInRange(frame.MIUF_Unit)
+            if frame.SetAlphaFromBoolean then
+                frame:SetAlphaFromBoolean(inRange, 1, 0.55)
+            elseif not canaccessvalue or canaccessvalue(inRange) then
+                frame:SetAlpha(inRange and 1 or 0.55)
+            end
+        elseif frame.MIUF_UnitType ~= "party" or frame.MIUF_Unit == "player" then
+            frame:SetAlpha(1)
+        end
+    end
+end)
 
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
