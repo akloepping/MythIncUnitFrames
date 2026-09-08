@@ -9,6 +9,7 @@ ns.NativeUnitFrames = true
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
+local RAID_TARGET_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local frames, previewEnabled = {}, {}
 ns.frames = frames
 
@@ -171,19 +172,26 @@ local function ApplyIndicatorLayout(frame, appearance)
 end
 
 local function UpdateRaidTarget(frame, appearance)
-    if not frame.RaidTargetIndicator then return end
+    local icon = frame.RaidTargetIndicator
+    if not icon then return end
     appearance = appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     if appearance.showRaidMarker == false then
-        frame.RaidTargetIndicator:Hide()
+        icon:Hide()
+        return
+    end
+
+    if not frame.MIUF_Unit or not UnitExists(frame.MIUF_Unit) then
+        icon:Hide()
         return
     end
 
     local index = GetRaidTargetIndex(frame.MIUF_Unit)
     if index then
-        SetRaidTargetIconTexture(frame.RaidTargetIndicator, index)
-        frame.RaidTargetIndicator:Show()
+        icon:SetTexture(RAID_TARGET_TEXTURE)
+        SetRaidTargetIconTexture(icon, index)
+        icon:Show()
     else
-        frame.RaidTargetIndicator:Hide()
+        icon:Hide()
     end
 end
 
@@ -429,6 +437,7 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     frame.Portrait = portrait
 
     local raidTarget = frame:CreateTexture(nil, "OVERLAY")
+    raidTarget:SetTexture(RAID_TARGET_TEXTURE)
     raidTarget:SetSize(20, 20)
     raidTarget:SetPoint("CENTER", frame, "TOP", 0, 2)
     raidTarget:Hide()
