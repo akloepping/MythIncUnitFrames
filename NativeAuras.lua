@@ -34,6 +34,11 @@ local NATIVE_AURA_TYPES = {
     party = true,
     targettarget = true,
 }
+local DISPEL_HIGHLIGHT_TYPES = {
+    player = true,
+    party = true,
+    focus = true,
+}
 
 local function BuildCandidateFilters(auraType)
     if auraType ~= "buffs" then return {} end
@@ -277,6 +282,58 @@ local function CreateAuraContainer(frame, auraType)
     ApplyContainerLayout(frame, auraType)
 end
 
+-- Dispel highlighting is also driven entirely by AuraContainer. The slot only
+-- receives HARMFUL|RAID auras, which Blizzard defines as debuffs the local player
+-- can dispel. The AuraButton itself becomes the frame-sized highlight, so MIUF
+-- never has to inspect aura data or branch on a secret value in combat.
+local function CreateDispelHighlight(frame)
+    if not frame or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType] or frame.MIUF_DispelHighlight then return end
+
+    local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
+    if not ok or not container then
+        print("|cffff5555MIUF: unable to create native dispel highlight.|r")
+        return
+    end
+    container:SetAllPoints(frame)
+    container:SetFrameLevel(frame:GetFrameLevel() + 4)
+
+    local slotOptions = {
+        initializeFrame = function(button)
+            button:SetAllPoints(container)
+            button:SetMouseMotionEnabled(false)
+
+            local overlay = button:CreateTexture(nil, "OVERLAY")
+            overlay:SetAllPoints(button)
+            overlay:SetTexture(FLAT)
+            overlay:SetAlpha(0.20)
+
+            -- PreserveAsset keeps MIUF's full-frame texture while Blizzard supplies
+            -- the dispel-type color. Because the slot is already HARMFUL|RAID,
+            -- every assigned aura is one the player can actually dispel.
+            button:SetAuraBorder(overlay, {
+                showAlways = true,
+                style = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset or 3,
+            })
+        end,
+    }
+
+    local added, slotOrError = pcall(container.AddAuraSlot, container, "miufDispel", "HARMFUL|RAID", slotOptions)
+    if not added then
+        print("|cffff5555MIUF: native dispel highlight failed: " .. tostring(slotOrError) .. "|r")
+        container:Hide()
+        return
+    end
+
+    local unitSet, unitError = pcall(container.SetUnit, container, frame.MIUF_Unit)
+    if not unitSet then
+        print("|cffff5555MIUF: native dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r")
+        container:Hide()
+        return
+    end
+
+    frame.MIUF_DispelHighlight = container
+end
+
 local function AttachFrameAuras(frame)
     if not frame or not NATIVE_AURA_TYPES[frame.MIUF_UnitType] or frame.MIUF_NativeAurasAttached then return end
     frame.MIUF_NativeAurasAttached = true
@@ -285,6 +342,7 @@ local function AttachFrameAuras(frame)
     if frame.MIUF_UnitType == "player" or frame.MIUF_UnitType == "party" then
         CreateAuraContainer(frame, "defensives")
     end
+    CreateDispelHighlight(frame)
 end
 
 local function AttachNativeAuras()
