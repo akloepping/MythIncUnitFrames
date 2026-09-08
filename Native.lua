@@ -508,7 +508,11 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     ApplyFrameState(frame, BuildFrameState(unitType))
     UpdateFrame(frame)
     if registerWatch ~= false then
-        RegisterUnitWatch(frame)
+        if unitType == "party" and unit:match("^party%d+$") and RegisterStateDriver then
+            RegisterStateDriver(frame, "visibility", string.format("[group:raid] hide; [group:party,@%s,exists] show; hide", unit))
+        else
+            RegisterUnitWatch(frame)
+        end
     else
         frame:Hide()
     end
