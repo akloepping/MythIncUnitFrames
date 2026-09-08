@@ -492,6 +492,8 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
             UpdateName(self)
         elseif event == "RAID_TARGET_UPDATE" then
             UpdateRaidTarget(self)
+        elseif event == "GROUP_ROSTER_UPDATE" and self.MIUF_UnitType == "party" then
+            UpdateFrame(self)
         elseif event == "PLAYER_ROLES_ASSIGNED" or event == "GROUP_ROSTER_UPDATE" then
             UpdateRoleIndicator(self)
             ApplyColors(self, ns.GetAppearance(self.MIUF_UnitType) or {})
