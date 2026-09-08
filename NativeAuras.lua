@@ -11,7 +11,15 @@ local AURA_TYPES = {
     buffs = { filter = "HELPFUL" },
     debuffs = { filter = "HARMFUL" },
 }
-local NATIVE_AURA_TYPES = { player = true, target = true }
+-- Match MIUF's established aura coverage. Boss and pet frames intentionally stay
+-- aura-free; partyplayer is covered because it uses the shared "party" unit type.
+local NATIVE_AURA_TYPES = {
+    player = true,
+    target = true,
+    focus = true,
+    party = true,
+    targettarget = true,
+}
 
 local function GetAnchor(layout)
     local anchor = layout.anchor == "BOTTOM" and "BOTTOM" or "TOP"
