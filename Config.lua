@@ -625,4 +625,31 @@ end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
 
-local combatWatcher=CreateFrame("Frame"); combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:SetScript("OnEvent",function() if config and config:IsShown() then ns.RefreshConfig() end end)
+local lockMoversButton=MakeButton(UIParent,"Lock Movers",120,28)
+lockMoversButton:SetPoint("TOP",UIParent,"TOP",0,-100)
+lockMoversButton:SetFrameStrata("DIALOG")
+lockMoversButton:SetClampedToScreen(true)
+lockMoversButton:Hide()
+
+function ns.UpdateLockMoversButton()
+    local frameLocked,auraLocked=ns.AreFrameMoversLocked(),ns.AreAuraMoversLocked()
+    lockMoversButton:SetShown(not InCombatLockdown() and (not frameLocked or not auraLocked))
+    if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frame Movers" or "Lock Frame Movers") end
+    if auraLockButton then auraLockButton:SetText(auraLocked and "Unlock Aura Movers" or "Lock Aura Movers") end
+end
+
+lockMoversButton:SetScript("OnClick",function()
+    if InCombatLockdown() then return end
+    ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
+    ns.SetMoversLocked(true)
+end)
+
+local combatWatcher=CreateFrame("Frame")
+combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+combatWatcher:SetScript("OnEvent",function(_,event)
+    if event~="PLAYER_ENTERING_WORLD" then
+        ns.SetAuraMoversLocked(InCombatLockdown() or ns.AreAuraMoversLocked())
+        if config and config:IsShown() then ns.RefreshConfig() end
+    end
+    ns.UpdateLockMoversButton()
+end)

@@ -313,6 +313,7 @@ function ns.SetFrameMoversLocked(locked)
             if locked or previewEnabled[unitType]==false or not ns.IsFrameTypeEnabled(unitType) or groupOwnerMismatch or bossOwnerMismatch then mover:Hide() else mover:Show() end
         end
     end
+    if ns.UpdateLockMoversButton then ns.UpdateLockMoversButton() end
 end
 function ns.PreviewUnitTypeMovers(unitType,enabled) previewEnabled[unitType]=enabled and true or false; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked()) end
 function ns.SetMoversLocked(locked) ns.SetFrameMoversLocked(locked); if ns.SetAuraMoversLocked then ns.SetAuraMoversLocked(locked) end end
