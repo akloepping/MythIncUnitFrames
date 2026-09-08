@@ -1,6 +1,6 @@
 local ADDON_NAME, ns = ...
 
-ns.NativeUnitFrames = true
+ns.UnitFrames = true
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
@@ -225,7 +225,7 @@ local function CreateMover(frame,labelText,positionKey)
     mover.MIUF_ResizeHandle=resize; mover:Hide(); frame.MIUF_Mover=mover
 end
 
-local function CreateNativeUnitFrame(unit,name,unitType,positionKey,registerWatch)
+local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch)
     unitType=unitType or unit; positionKey=positionKey or unit
     local size=ns.GetSize(unitType); local frame=CreateFrame("Button",name,UIParent,"SecureUnitButtonTemplate")
     frame.MIUF_Unit=unit; frame.MIUF_UnitType=unitType; frame.MIUF_PositionKey=positionKey; frame.__unit=unit
@@ -311,16 +311,16 @@ function ns.ResetLayout() for _,frame in pairs(frames) do ApplyPosition(frame.MI
 local spawned=false
 function ns.SpawnAllFrames()
     if spawned then return end; spawned=true
-    if ns.IsFrameTypeEnabled("player") then CreateNativeUnitFrame("player","MIUF_Player") end
-    if ns.IsFrameTypeEnabled("target") then CreateNativeUnitFrame("target","MIUF_Target") end
-    if ns.IsFrameTypeEnabled("focus") then CreateNativeUnitFrame("focus","MIUF_Focus") end
-    if ns.IsFrameTypeEnabled("pet") then CreateNativeUnitFrame("pet","MIUF_Pet") end
-    if ns.IsFrameTypeEnabled("targettarget") then CreateNativeUnitFrame("targettarget","MIUF_TargetTarget") end
+    if ns.IsFrameTypeEnabled("player") then CreateUnitFrame("player","MIUF_Player") end
+    if ns.IsFrameTypeEnabled("target") then CreateUnitFrame("target","MIUF_Target") end
+    if ns.IsFrameTypeEnabled("focus") then CreateUnitFrame("focus","MIUF_Focus") end
+    if ns.IsFrameTypeEnabled("pet") then CreateUnitFrame("pet","MIUF_Pet") end
+    if ns.IsFrameTypeEnabled("targettarget") then CreateUnitFrame("targettarget","MIUF_TargetTarget") end
     if ns.IsFrameTypeEnabled("party") then
-        for i=1,4 do local unit="party"..i; CreateNativeUnitFrame(unit,"MIUF_Party"..i,"party","party1") end
-        local primaryPlayer=frames.player; local partyPlayer=CreateNativeUnitFrame("player","MIUF_PartyPlayer","party","party1",false); frames.player=primaryPlayer; frames.partyplayer=partyPlayer
+        for i=1,4 do local unit="party"..i; CreateUnitFrame(unit,"MIUF_Party"..i,"party","party1") end
+        local primaryPlayer=frames.player; local partyPlayer=CreateUnitFrame("player","MIUF_PartyPlayer","party","party1",false); frames.player=primaryPlayer; frames.partyplayer=partyPlayer
     end
-    if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateNativeUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
+    if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
