@@ -225,7 +225,7 @@ local function CreateMover(frame,labelText,positionKey)
     mover.MIUF_ResizeHandle=resize; mover:Hide(); frame.MIUF_Mover=mover
 end
 
-local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch)
+local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,storageKey)
     unitType=unitType or unit; positionKey=positionKey or unit
     local size=ns.GetSize(unitType); local frame=CreateFrame("Button",name,UIParent,"SecureUnitButtonTemplate")
     frame.MIUF_Unit=unit; frame.MIUF_UnitType=unitType; frame.MIUF_PositionKey=positionKey; frame.__unit=unit
@@ -278,7 +278,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch)
     if registerWatch~=false then
         if unitType=="party" and unit:match("^party%d+$") and RegisterStateDriver then RegisterStateDriver(frame,"visibility",string.format("[group:raid] hide; [group:party,@%s,exists] show; hide",unit)) else RegisterUnitWatch(frame) end
     else frame:Hide() end
-    frames[unit]=frame; return frame
+    frames[storageKey or unit]=frame; return frame
 end
 
 function ns.ApplyFrameType(unitType)
@@ -318,7 +318,7 @@ function ns.SpawnAllFrames()
     if ns.IsFrameTypeEnabled("targettarget") then CreateUnitFrame("targettarget","MIUF_TargetTarget") end
     if ns.IsFrameTypeEnabled("party") then
         for i=1,4 do local unit="party"..i; CreateUnitFrame(unit,"MIUF_Party"..i,"party","party1") end
-        local primaryPlayer=frames.player; local partyPlayer=CreateUnitFrame("player","MIUF_PartyPlayer","party","party1",false); frames.player=primaryPlayer; frames.partyplayer=partyPlayer
+        CreateUnitFrame("player","MIUF_PartyPlayer","party","party1",false,"partyplayer")
     end
     if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
