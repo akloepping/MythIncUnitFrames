@@ -191,6 +191,17 @@ local function CreateAuraContainer(frame, auraType)
 
     frame.MIUF_NativeAuras = frame.MIUF_NativeAuras or {}
     frame.MIUF_NativeAuras[auraType] = { container = container, anchor = anchor }
+
+    -- Config.lua still uses the legacy oUF field names for its live preview path.
+    -- Expose native containers through those same fields and point MIUF_Anchor at
+    -- the native movable anchor so X/Y sliders and anchor changes update instantly.
+    container.MIUF_Anchor = anchor
+    if auraType == "buffs" then
+        frame.PlayerBuffs = container
+    elseif auraType == "debuffs" then
+        frame.CombatDebuffs = container
+    end
+
     CreateAuraMover(frame, auraType, anchor)
     ApplyContainerLayout(frame, auraType)
 end
