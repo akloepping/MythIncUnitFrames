@@ -156,8 +156,28 @@ local function ApplyColors(frame, appearance)
     end
 end
 
-local function UpdateRaidTarget(frame)
+local function ApplyIndicatorLayout(frame, appearance)
+    if frame.RaidTargetIndicator then
+        local size = math.max(8, tonumber(appearance.raidMarkerSize) or 20)
+        frame.RaidTargetIndicator:SetSize(size, size)
+        frame.RaidTargetIndicator:ClearAllPoints()
+        frame.RaidTargetIndicator:SetPoint("CENTER", frame, "TOP", appearance.raidMarkerXOffset or 0, appearance.raidMarkerYOffset or 2)
+    end
+
+    if frame.GroupRoleIndicator then
+        frame.GroupRoleIndicator:ClearAllPoints()
+        frame.GroupRoleIndicator:SetPoint("TOPLEFT", frame.Health, "TOPLEFT", appearance.roleIconXOffset or 3, appearance.roleIconYOffset or -3)
+    end
+end
+
+local function UpdateRaidTarget(frame, appearance)
     if not frame.RaidTargetIndicator then return end
+    appearance = appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
+    if appearance.showRaidMarker == false then
+        frame.RaidTargetIndicator:Hide()
+        return
+    end
+
     local index = GetRaidTargetIndex(frame.MIUF_Unit)
     if index then
         SetRaidTargetIconTexture(frame.RaidTargetIndicator, index)
@@ -167,11 +187,11 @@ local function UpdateRaidTarget(frame)
     end
 end
 
-local function UpdateRoleIndicator(frame)
+local function UpdateRoleIndicator(frame, appearance)
     local icon = frame.GroupRoleIndicator
     if not icon then return end
 
-    local appearance = ns.GetAppearance(frame.MIUF_UnitType) or {}
+    appearance = appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     if not appearance.showRoleIcon then
         icon:Hide()
         return
@@ -197,9 +217,11 @@ local function UpdateFrame(frame)
     UpdatePower(frame)
     UpdateName(frame)
     UpdatePortrait(frame)
-    ApplyColors(frame, ns.GetAppearance(frame.MIUF_UnitType) or {})
-    UpdateRaidTarget(frame)
-    UpdateRoleIndicator(frame)
+    local appearance = ns.GetAppearance(frame.MIUF_UnitType) or {}
+    ApplyColors(frame, appearance)
+    ApplyIndicatorLayout(frame, appearance)
+    UpdateRaidTarget(frame, appearance)
+    UpdateRoleIndicator(frame, appearance)
 end
 
 local function ApplyFrameState(frame, state)
@@ -262,8 +284,9 @@ local function ApplyFrameState(frame, state)
     frame.HealthText:SetShown(appearance.showHealthText)
 
     ApplyColors(frame, appearance)
-    UpdateRoleIndicator(frame)
-    UpdateRaidTarget(frame)
+    ApplyIndicatorLayout(frame, appearance)
+    UpdateRoleIndicator(frame, appearance)
+    UpdateRaidTarget(frame, appearance)
 end
 
 local function CreateMover(frame, labelText, positionKey)
