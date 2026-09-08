@@ -219,6 +219,12 @@ function ns.ApplyPartyLayout()
     local owner = AnchorGroupFrames(ordered, layout, "party1")
     ns.partyFrameMoverOwner = owner
     ns.partyAuraMoverOwner = owner
+
+    -- Party frames are re-anchored whenever roster/role sorting is applied. Reapply
+    -- the shared party aura layout afterwards so the saved X/Y offsets remain
+    -- relative to the final sorted frame positions across login/reload.
+    if ns.ApplyAuraPositions then ns.ApplyAuraPositions("party") end
+
     if ns.partyAuraMoverOwner and ns.SetAuraMoversLocked and ns.AreAuraMoversLocked then
         ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
     end
