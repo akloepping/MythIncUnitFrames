@@ -436,7 +436,7 @@ local function CreateNativeUnitFrame(unit, name, unitType, positionKey, register
     portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     frame.Portrait = portrait
 
-    local raidTarget = frame:CreateTexture(nil, "OVERLAY")
+    local raidTarget = frame:CreateTexture(nil, "OVERLAY", nil, 7)
     raidTarget:SetTexture(RAID_TARGET_TEXTURE)
     raidTarget:SetSize(20, 20)
     raidTarget:SetPoint("CENTER", frame, "TOP", 0, 2)
