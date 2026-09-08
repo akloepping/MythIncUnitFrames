@@ -18,9 +18,10 @@ local selectedType, selectedAura, selectedPage = "player", "buffs", "frames"
 local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
+local roleXSlider, roleYSlider, raidXSlider, raidYSlider, raidSizeSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
-local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton
+local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
 local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
 local frameTab, auraTab, profileTab
@@ -96,11 +97,16 @@ local function PreviewFrameSliders()
     local borderOpacity=Round(borderSlider:GetValue())
     local nameX,nameY=Round(nameXSlider:GetValue()),Round(nameYSlider:GetValue())
     local healthX,healthY=Round(healthXSlider:GetValue()),Round(healthYSlider:GetValue())
+    local roleX,roleY=Round(roleXSlider:GetValue()),Round(roleYSlider:GetValue())
+    local raidX,raidY=Round(raidXSlider:GetValue()),Round(raidYSlider:GetValue())
+    local raidSize=Round(raidSizeSlider:GetValue())
 
     working.fontSize=fontSize; working.portraitPercent=portraitPercent
     working.backgroundOpacity=backgroundOpacity; working.borderOpacity=borderOpacity
     working.nameXOffset=nameX; working.nameYOffset=nameY
     working.healthXOffset=healthX; working.healthYOffset=healthY
+    working.roleIconXOffset=roleX; working.roleIconYOffset=roleY
+    working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
     ns.PreviewFrameType(selectedType,{
@@ -119,6 +125,13 @@ local function PreviewFrameSliders()
             nameYOffset=nameY,
             healthXOffset=healthX,
             healthYOffset=healthY,
+            showRoleIcon=working.showRoleIcon,
+            roleIconXOffset=roleX,
+            roleIconYOffset=roleY,
+            showRaidMarker=working.showRaidMarker,
+            raidMarkerSize=raidSize,
+            raidMarkerXOffset=raidX,
+            raidMarkerYOffset=raidY,
         },
     })
     previewFrameType=selectedType
@@ -223,7 +236,10 @@ end
 local function RefreshFrameControls()
     nameButton:SetText("Name: "..(working.showName and "On" or "Off")); healthTextButton:SetText("Health %: "..(working.showHealthText and "On" or "Off"))
     portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
-    roleIconButton:SetShown(selectedType=="player" or selectedType=="party"); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
+    local roleAvailable=selectedType=="player" or selectedType=="party"
+    roleIconButton:SetShown(roleAvailable); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
+    roleXSlider:SetShown(roleAvailable); roleXSlider.ValueBox:SetShown(roleAvailable); roleYSlider:SetShown(roleAvailable); roleYSlider.ValueBox:SetShown(roleAvailable)
+    raidMarkerButton:SetText("Raid Marker: "..(working.showRaidMarker~=false and "On" or "Off"))
     textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
 end
@@ -333,6 +349,8 @@ function ns.RefreshConfig()
     if selectedPage=="frames" then
         local size=ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
+        roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
+        raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
     elseif selectedPage=="auras" then
         for auraType,button in pairs(auraButtons) do button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
@@ -352,6 +370,8 @@ local function ApplySelected()
     ns.SaveSize(selectedType,Round(widthSlider:GetValue()),Round(heightSlider:GetValue())); ns.SavePowerPercent(selectedType,Round(powerSlider:GetValue()))
     working.fontSize=Round(fontSlider:GetValue()); working.portraitPercent=Round(portraitSlider:GetValue()); working.backgroundOpacity=Round(bgSlider:GetValue()); working.borderOpacity=Round(borderSlider:GetValue())
     working.nameXOffset=Round(nameXSlider:GetValue()); working.nameYOffset=Round(nameYSlider:GetValue()); working.healthXOffset=Round(healthXSlider:GetValue()); working.healthYOffset=Round(healthYSlider:GetValue())
+    working.roleIconXOffset=Round(roleXSlider:GetValue()); working.roleIconYOffset=Round(roleYSlider:GetValue())
+    working.raidMarkerXOffset=Round(raidXSlider:GetValue()); working.raidMarkerYOffset=Round(raidYSlider:GetValue()); working.raidMarkerSize=Round(raidSizeSlider:GetValue())
     ns.SaveAppearance(selectedType,working)
     if selectedType=="party" or selectedType=="boss" then
         ns.SaveGroupLayout(selectedType,{orientation=groupWorking.orientation or "VERTICAL",direction=groupWorking.direction or "DOWN",spacing=Round(partySpacingSlider:GetValue())})
@@ -380,7 +400,7 @@ local function SelectPage(page)
 end
 
 local function CreateShell()
-    config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,740); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
+    config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,840); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
     config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
@@ -414,6 +434,7 @@ local function CreateFramesPage()
     local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
     local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
     local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
+    local indicators=MakeSection(framesPage,"Indicators",330,175); indicators:SetPoint("TOPLEFT",20,-480)
     widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
@@ -456,9 +477,17 @@ local function CreateFramesPage()
     textureButton:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu:IsShown() then textureMenu:Hide() else textureMenu:Show() end end)
     healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls() end)
     powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls() end)
-    roleIconButton=MakeButton(appearance,"Role Icon: Off",155,26); roleIconButton:SetPoint("TOPLEFT",15,-102); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls() end)
     bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+
+    roleIconButton=MakeButton(indicators,"Role Icon: Off",145,24); roleIconButton:SetPoint("TOPLEFT",10,-30); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls(); PreviewFrameSliders() end)
+    raidMarkerButton=MakeButton(indicators,"Raid Marker: On",145,24); raidMarkerButton:SetPoint("LEFT",roleIconButton,"RIGHT",10,0); raidMarkerButton:SetScript("OnClick",function() working.showRaidMarker=working.showRaidMarker==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,125); roleXSlider:SetPoint("TOPLEFT",15,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,125); roleYSlider:SetPoint("TOPLEFT",180,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+
     local apply=MakeButton(framesPage,"Apply Frame",100,28); apply:SetPoint("BOTTOMLEFT",20,8); apply:SetScript("OnClick",ApplySelected)
     local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("LEFT",apply,"RIGHT",8,0); reset:SetScript("OnClick",function() if not InCombatLockdown() then previewFrameType=nil; ns.ResetFrameAppearance(selectedType); ns.ApplyFrameType(selectedType); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
