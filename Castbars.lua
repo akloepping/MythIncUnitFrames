@@ -31,10 +31,11 @@ local function SetInterruptibleVisual(bar, notInterruptible)
 end
 
 local function RefreshCastbar(frame)
+    local holder = frame and frame.CastbarHolder
     local bar = frame and frame.Castbar
     local unit = frame and frame.MIUF_Unit
-    if not bar or not unit or not UnitExists(unit) then
-        if bar then bar:Hide() end
+    if not holder or not bar or not unit or not UnitExists(unit) then
+        if holder then holder:Hide() end
         return
     end
 
@@ -59,7 +60,7 @@ local function RefreshCastbar(frame)
     end
 
     if not name or not duration then
-        bar:Hide()
+        holder:Hide()
         return
     end
 
@@ -72,6 +73,7 @@ local function RefreshCastbar(frame)
     bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate, direction)
     SetInterruptibleVisual(bar, notInterruptible)
     bar:Show()
+    holder:Show()
 end
 
 local function CreateCastbar(frame)
@@ -85,13 +87,13 @@ local function CreateCastbar(frame)
     holder:SetBackdropColor(0.03, 0.03, 0.03, 0.95)
     holder:SetBackdropBorderColor(0.12, 0.12, 0.12, 1)
     holder:SetFrameLevel(frame:GetFrameLevel() + 6)
+    holder:Hide()
 
     local bar = CreateFrame("StatusBar", nil, holder)
     bar:SetPoint("TOPLEFT", 1, -1)
     bar:SetPoint("BOTTOMRIGHT", -1, 1)
     bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("flat") or FLAT)
     bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
-    bar:Hide()
 
     local background = bar:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(bar)
