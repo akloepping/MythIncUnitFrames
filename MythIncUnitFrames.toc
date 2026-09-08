@@ -8,5 +8,6 @@
 Core.lua
 Media.lua
 Native.lua
+Castbars.lua
 Groups.lua
 Config.lua
