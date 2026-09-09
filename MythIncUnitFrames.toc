@@ -12,4 +12,5 @@ ClickCasting.lua
 Castbars.lua
 Auras.lua
 Groups.lua
+ConfigSession.lua
 Config.lua

@@ -34,11 +34,7 @@ local profileButtons = {}
 local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
-local pendingEnabled, pendingAuraLayouts = {}, {}
-local pendingTrackedBuffs
-local pendingFrameSettings, pendingGroupLayouts = {}, {}
 local MarkPending
-local hasPendingChanges = false
 local previewFrameType
 local previewAuraUnitType, previewAuraType
 
@@ -119,7 +115,7 @@ local function PreviewFrameSliders()
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
-    pendingFrameSettings[selectedType]={size={width=width,height=height},powerPercent=powerPercent,appearance=working}
+    ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
     MarkPending("Configuration changes are pending.")
     if InCombatLockdown() or not ns.PreviewFrameType then return end
     ns.PreviewFrameType(selectedType,{
@@ -195,93 +191,32 @@ local function ChooseAvailableAura()
     for _,auraType in ipairs(AURA_TYPES) do if AuraAvailable(selectedType,auraType) then selectedAura=auraType; return end end
 end
 
--- Compare only staged fields: aura edits are sparse, frame/group edits are snapshots.
-local function MatchesSaved(values,saved)
-    if type(values)~="table" then return values==saved end
-    if type(saved)~="table" then return false end
-    for key,value in pairs(values) do
-        if not MatchesSaved(value,saved[key]) then return false end
-    end
-    return true
-end
-
 MarkPending=function(message)
-    for unitType,values in pairs(pendingFrameSettings) do
-        if MatchesSaved(values.size,ns.GetSize(unitType))
-            and values.powerPercent==ns.GetPowerPercent(unitType)
-            and MatchesSaved(values.appearance,ns.GetAppearance(unitType)) then
-            pendingFrameSettings[unitType]=nil
-        end
-    end
-    for unitType,values in pairs(pendingGroupLayouts) do
-        if MatchesSaved(values,ns.GetGroupLayout(unitType)) then pendingGroupLayouts[unitType]=nil end
-    end
-    for unitType,enabled in pairs(pendingEnabled) do
-        if enabled==ns.IsFrameTypeEnabled(unitType) then pendingEnabled[unitType]=nil end
-    end
-    for unitType,auraTypes in pairs(pendingAuraLayouts) do
-        for auraType,values in pairs(auraTypes) do
-            if MatchesSaved(values,ns.GetAuraLayout(unitType,auraType)) then auraTypes[auraType]=nil end
-        end
-        if not next(auraTypes) then pendingAuraLayouts[unitType]=nil end
-    end
-    if pendingTrackedBuffs and MatchesSaved(pendingTrackedBuffs,ns.GetTrackedBuffs())
-        and MatchesSaved(ns.GetTrackedBuffs(),pendingTrackedBuffs) then pendingTrackedBuffs=nil end
-    hasPendingChanges=next(pendingFrameSettings)~=nil or next(pendingGroupLayouts)~=nil
-        or next(pendingEnabled)~=nil or next(pendingAuraLayouts)~=nil or pendingTrackedBuffs~=nil
-    if applyChangesButton then applyChangesButton:SetEnabled(hasPendingChanges and not InCombatLockdown()) end
+    local dirty=ns.ConfigSessionIsDirty()
+    if applyChangesButton then applyChangesButton:SetEnabled(dirty and not InCombatLockdown()) end
     if statusText then
         statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat."
-            or (hasPendingChanges and ((message or "Changes are pending.").."  Click Apply Changes when ready.")
+            or (dirty and ((message or "Changes are pending.").."  Click Apply Changes when ready.")
             or "No pending changes."))
     end
 end
-local function GetPendingEnabled(unitType)
-    if pendingEnabled[unitType]~=nil then return pendingEnabled[unitType] end
-    return ns.IsFrameTypeEnabled(unitType)
-end
-
-local function GetPendingAuraLayout(unitType,auraType)
-    local base=ns.GetAuraLayout(unitType,auraType); if not base then return nil end
-    local result={}; for k,v in pairs(base) do result[k]=v end
-    local pending=pendingAuraLayouts[unitType] and pendingAuraLayouts[unitType][auraType]
-    if pending then for k,v in pairs(pending) do result[k]=v end end
-    return result
-end
-
-local function CopyValues(source)
-    local result={}
-    for k,v in pairs(source or {}) do result[k]=type(v)=="table" and CopyValues(v) or v end
-    return result
-end
 
 local function CopyWorking()
-    local pending=pendingFrameSettings[selectedType]
-    working=CopyValues(pending and pending.appearance or ns.GetAppearance(selectedType))
-    ChooseAvailableAura(); auraWorking=GetPendingAuraLayout(selectedType,selectedAura) or {}
-    groupWorking=CopyValues(pendingGroupLayouts[selectedType] or ns.GetGroupLayout(selectedType))
+    working=ns.ConfigSessionGetFrame(selectedType).appearance
+    ChooseAvailableAura(); auraWorking=ns.ConfigSessionGetAura(selectedType,selectedAura) or {}
+    groupWorking=ns.ConfigSessionGetGroup(selectedType)
 end
 
 local function StageGroupControls()
     if refreshing or (selectedType~="party" and selectedType~="boss") then return end
-    pendingGroupLayouts[selectedType]=CopyValues(groupWorking)
+    ns.ConfigSessionStageGroup(selectedType,groupWorking)
     MarkPending("Group layout changes are pending.")
 end
 
-local function StageFrameReset(unitType)
-    pendingFrameSettings[unitType]={
-        size=CopyValues(ns.defaultSizes[unitType]),
-        powerPercent=ns.defaultBarLayout[unitType].powerPercent,
-        appearance=CopyValues(ns.defaultAppearance[unitType]),
-    }
-    if ns.defaultGroupLayout[unitType] then
-        pendingGroupLayouts[unitType]=CopyValues(ns.defaultGroupLayout[unitType])
-    end
-end
 local function StageAuraValue(key,value)
     if refreshing or not AuraAvailable(selectedType,selectedAura) then return end
-    pendingAuraLayouts[selectedType]=pendingAuraLayouts[selectedType] or {}; pendingAuraLayouts[selectedType][selectedAura]=pendingAuraLayouts[selectedType][selectedAura] or {}
-    pendingAuraLayouts[selectedType][selectedAura][key]=value; auraWorking[key]=value; MarkPending(DISPLAY_NAMES[selectedType].." "..AURA_NAMES[selectedAura].." change staged.")
+    ns.ConfigSessionStageAura(selectedType,selectedAura,{[key]=value})
+    auraWorking[key]=value; MarkPending(DISPLAY_NAMES[selectedType].." "..AURA_NAMES[selectedAura].." change staged.")
 end
 
 local function RefreshFrameControls()
@@ -319,10 +254,6 @@ local function RefreshAuraControls()
     refreshing=wasRefreshing
 end
 
-local function CopyTracked(source)
-    local r={}; for id,info in pairs(source or {}) do r[tonumber(id) or id]=type(info)=="table" and {name=info.name,icon=info.icon} or {} end; return r
-end
-local function WorkingTracked() return pendingTrackedBuffs or ns.GetTrackedBuffs() end
 local function BuffPickerUnits()
     if selectedType=="party" then local u={"party1","party2","party3","party4"}; if groupWorking.includePlayer then u[#u+1]="player" end; return u end
     if selectedType=="player" or selectedType=="target" or selectedType=="focus" or selectedType=="targettarget" then return {selectedType} end
@@ -341,7 +272,7 @@ end
 local function RefreshTrackedWindow()
     if not buffFilterPanel then return end
     local show=selectedPage=="auras" and selectedAura=="buffs"; buffFilterPanel:SetShown(show); if not show then return end
-    ObserveCurrentBuffs(); local tracked=WorkingTracked(); local trackedList,seenList={},{}
+    ObserveCurrentBuffs(); local tracked=ns.ConfigSessionGetTrackedBuffs(); local trackedList,seenList={},{}
     for id,meta in pairs(tracked or {}) do local n=tonumber(id); if n then trackedList[#trackedList+1]={spellID=n,name=meta.name or ("Spell "..n),icon=meta.icon} end end
     for id,meta in pairs(ns.GetSeenBuffs() or {}) do local n=tonumber(id); if n and not tracked[n] then seenList[#seenList+1]={spellID=n,name=meta.name or ("Spell "..n),icon=meta.icon,lastSeen=meta.lastSeen or 0} end end
     table.sort(trackedList,function(a,b) return a.name<b.name end); table.sort(seenList,function(a,b) if a.lastSeen~=b.lastSeen then return a.lastSeen>b.lastSeen end return a.name<b.name end)
@@ -351,8 +282,9 @@ local function RefreshTrackedWindow()
         if not info then button:Hide(); return end
         button.icon:SetTexture(info.icon or 134400); button:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_RIGHT"); GameTooltip:SetText(info.name); GameTooltip:AddLine(isTracked and "Click to stop tracking." or "Click to track.",0.8,0.8,0.8); GameTooltip:Show() end); button:SetScript("OnLeave",GameTooltip_Hide)
         button:SetScript("OnClick",function()
-            if InCombatLockdown() then return end; if not pendingTrackedBuffs then pendingTrackedBuffs=CopyTracked(ns.GetTrackedBuffs()) end
-            if isTracked then pendingTrackedBuffs[info.spellID]=nil else pendingTrackedBuffs[info.spellID]={name=info.name,icon=info.icon} end
+            if InCombatLockdown() then return end; local values=ns.ConfigSessionGetTrackedBuffs()
+            if isTracked then values[info.spellID]=nil else values[info.spellID]={name=info.name,icon=info.icon} end
+            ns.ConfigSessionStageTrackedBuffs(values)
             MarkPending(info.name..(isTracked and " will no longer be tracked." or " will be tracked.")); RefreshTrackedWindow()
         end); button:Show()
     end
@@ -389,7 +321,7 @@ end
 function ns.RefreshConfig()
     if not config or not config:IsShown() then return end
     refreshing=true; MarkPending(); CopyWorking()
-    for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(GetPendingEnabled(unitType)) end
+    for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(ns.ConfigSessionGetEnabled(unitType)) end
     if selectedPage=="profiles" then
         selectedLabel:SetText("Profiles")
     else
@@ -400,7 +332,7 @@ function ns.RefreshConfig()
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
-        local pending=pendingFrameSettings[selectedType]; local size=pending and pending.size or ns.GetSize(selectedType); widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(pending and pending.powerPercent or ns.GetPowerPercent(selectedType)); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
+        local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
         raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
@@ -411,26 +343,16 @@ function ns.RefreshConfig()
     else
         RefreshProfilesControls()
     end
-    statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (hasPendingChanges and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
-    applyChangesButton:SetEnabled(hasPendingChanges and not InCombatLockdown())
+    statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
+    applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
     if not InCombatLockdown() and selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
 end
 
-local function ApplyPendingChanges()
-    if InCombatLockdown() or not hasPendingChanges then return end
-    for unitType,values in pairs(pendingFrameSettings) do
-        ns.SaveSize(unitType,values.size.width,values.size.height)
-        ns.SavePowerPercent(unitType,values.powerPercent)
-        ns.SaveAppearance(unitType,values.appearance)
-    end
-    for unitType,values in pairs(pendingGroupLayouts) do ns.SaveGroupLayout(unitType,values) end
-    for unitType,enabled in pairs(pendingEnabled) do ns.SetFrameTypeEnabled(unitType,enabled) end
-    for unitType,auraTypes in pairs(pendingAuraLayouts) do for auraType,values in pairs(auraTypes) do ns.SaveAuraLayout(unitType,auraType,values) end end
-    if pendingTrackedBuffs then ns.SetTrackedBuffs(pendingTrackedBuffs) end
-    pendingEnabled={}; pendingAuraLayouts={}; pendingFrameSettings={}; pendingGroupLayouts={}; pendingTrackedBuffs=nil; hasPendingChanges=false
+local function ApplyChanges()
+    if not ns.ConfigSessionCommit() then return end
     previewAuraUnitType,previewAuraType=nil,nil
     previewFrameType=nil; applyChangesButton:SetEnabled(false)
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
@@ -467,8 +389,8 @@ local function CreateShell()
     for _,unitType in ipairs(FRAME_TYPES) do
         local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
         local check=CreateFrame("CheckButton",nil,row,"UICheckButtonTemplate"); check:SetSize(24,24); check:SetPoint("LEFT"); check:SetScript("OnClick",function(self)
-            if InCombatLockdown() then self:SetChecked(GetPendingEnabled(unitType)); return end
-            pendingEnabled[unitType]=self:GetChecked() and true or false; MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
+            if InCombatLockdown() then self:SetChecked(ns.ConfigSessionGetEnabled(unitType)); return end
+            ns.ConfigSessionStageEnabled(unitType,self:GetChecked() and true or false); MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
@@ -477,14 +399,9 @@ local function CreateShell()
             selectedType=unitType; if selectedPage=="profiles" then selectedPage="frames" end; ns.RefreshConfig()
         end); frameButtons[unitType]=b; prev=row
     end
-    applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyPendingChanges)
+    applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
     local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
-        for _,unitType in ipairs(FRAME_TYPES) do
-            StageFrameReset(unitType)
-            pendingEnabled[unitType]=ns.defaultEnabled[unitType]
-            pendingAuraLayouts[unitType]=CopyValues(ns.defaultAuraLayout[unitType])
-        end
-        pendingTrackedBuffs={}; MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
+        ns.ConfigSessionStageResetAll(); MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
     statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
@@ -548,7 +465,7 @@ local function CreateFramesPage()
     raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); StageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
+    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -588,7 +505,7 @@ local function CreateAurasPage()
     local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
     manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
-    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end; pendingAuraLayouts[selectedType]=pendingAuraLayouts[selectedType] or {}; pendingAuraLayouts[selectedType][selectedAura]=CopyValues(ns.defaultAuraLayout[selectedType][selectedAura]); MarkPending("Aura reset is pending."); ns.RefreshConfig() end end)
+    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end; ns.ConfigSessionStageAuraReset(selectedType,selectedAura); MarkPending("Aura reset is pending."); ns.RefreshConfig() end end)
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
@@ -615,7 +532,7 @@ local function CreateProfilesPage()
 
     local use=MakeButton(section,"Use Profile",120,28); use:SetPoint("TOPLEFT",275,-158); use:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be switched during combat.",true); return end
-        if hasPendingChanges then SetProfileStatus("Apply pending changes before switching profiles.",true); return end
+        if ns.ConfigSessionIsDirty() then SetProfileStatus("Apply pending changes before switching profiles.",true); return end
         local target=selectedProfileName or ns.GetActiveProfileName()
         if target==ns.GetActiveProfileName() then SetProfileStatus(target.." is already active.",false); return end
         local ok,msg=ns.SetActiveProfile(target)
@@ -664,7 +581,7 @@ end
 local function CreateConfig()
     if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
-    config:HookScript("OnShow",function() applyChangesButton:SetEnabled(hasPendingChanges); ns.RefreshConfig() end); config:Hide()
+    config:HookScript("OnShow",function() applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
 end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
