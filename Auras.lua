@@ -9,7 +9,12 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs", defensives = "Defensives" }
 local AURA_TYPES = {
     buffs = { groups = { { key = "buffs", filter = "HELPFUL|PLAYER" } } },
-    debuffs = { groups = { { key = "debuffs", filter = "HARMFUL|RAID_IN_COMBAT" } } },
+    debuffs = { groups = {
+        -- Groups do not deduplicate overlapping filters; exclude important auras
+        -- from the normal group inside Blizzard's filter engine.
+        { key = "debuffsImportant", filter = "HARMFUL|RAID_IN_COMBAT", important = true },
+        { key = "debuffs", filter = "HARMFUL|!RAID_IN_COMBAT" },
+    } },
     defensives = { groups = {
         { key = "defensivesBig", filter = "HELPFUL|BIG_DEFENSIVE" },
         { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
@@ -54,8 +59,14 @@ local function SetFlowLayout(container, anchorPoint, growthX, growthY)
     end
 end
 
-local function InitializeAuraButton(button, layout)
+local function GetAuraGroupSize(layout, group)
     local size = math.max(8, tonumber(layout.iconSize) or 22)
+    if group and group.important then return math.floor(size * 1.20 + 0.5) end
+    return size
+end
+
+local function InitializeAuraButton(button, layout, size)
+    size = size or GetAuraGroupSize(layout)
     button:SetSize(size, size)
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(button); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92); button:SetIcon(icon)
@@ -91,9 +102,15 @@ local function ApplyContainerLayout(frame, auraType)
     data.anchor:SetSize(width, size)
     PositionAuraAnchor(frame, auraType)
     SetFlowLayout(data.container, flowAnchor, growthX, growthY)
-    for _, groupKey in ipairs(data.groupKeys or {}) do
+    if auraType == "debuffs" then
+        data.anchor:SetHeight(GetAuraGroupSize(layout, AURA_TYPES.debuffs.groups[1]))
+        data.container:SetFlowLayoutMaximumLineSize(width)
+    end
+    for _, group in ipairs(AURA_TYPES[auraType].groups) do
+        local groupKey = group.key
+        local groupSize = GetAuraGroupSize(layout, group)
         if data.container.SetAuraGroupLayout then
-            data.container:SetAuraGroupLayout(groupKey, { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing })
+            data.container:SetAuraGroupLayout(groupKey, { elementWidth = groupSize, elementHeight = groupSize, elementSpacing = spacing, lineSpacing = spacing })
         end
         if data.container.SetAuraGroupEnabled then data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false) end
     end
@@ -157,11 +174,14 @@ local function CreateAuraContainer(frame, auraType)
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
     local groupKeys = {}
     for _, group in ipairs(typeInfo.groups or {}) do
+        local groupSize = GetAuraGroupSize(layout, group)
         local groupOptions = {
+            -- Blizzard caps each group independently; both debuff groups get the
+            -- configured limit, so their combined display can reach 2 * maxCount.
             maxFrameCount = maxCount,
             candidateFilters = BuildCandidateFilters(auraType),
-            layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
-            initializeFrame = function(button) InitializeAuraButton(button, layout) end,
+            layout = { elementWidth = groupSize, elementHeight = groupSize, elementSpacing = spacing, lineSpacing = spacing },
+            initializeFrame = function(button) InitializeAuraButton(button, layout, groupSize) end,
         }
         local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
