@@ -118,10 +118,13 @@ local function GetAutomaticHealthColor(unit)
     if not unit or not UnitExists(unit) then return 0.45, 0.45, 0.45 end
     if UnitIsPlayer(unit) then
         local _, class = UnitClass(unit)
-        local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-        if color then return color.r, color.g, color.b end
+        -- The native API accepts secret class tokens; pass its RGB values straight
+        -- to SetStatusBarColor rather than indexing a Lua table with the token.
+        local color = class and C_ClassColor.GetClassColor(class)
+        if color then return color:GetRGB() end
     end
     local reaction = UnitReaction(unit, "player")
+    if not canaccessvalue(reaction) then return 0.45, 0.45, 0.45 end
     if reaction then
         if reaction <= 3 then return 0.80, 0.18, 0.18 end
         if reaction == 4 then return 0.85, 0.75, 0.20 end
@@ -138,6 +141,8 @@ local POWER_COLORS = {
 local function GetAutomaticPowerColor(unit)
     if not unit or not UnitExists(unit) then return 0.20,0.40,0.90 end
     local _, token = UnitPowerType(unit)
+    -- Preserve MIUF's palette for public tokens; never use a secret table key.
+    if not canaccessvalue(token) then return 0.20,0.40,0.90 end
     local c = token and POWER_COLORS[token]
     if c then return c[1],c[2],c[3] end
     return 0.20,0.40,0.90
@@ -182,6 +187,7 @@ local function UpdateRoleIndicator(frame, appearance)
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     if not appearance.showRoleIcon then icon:Hide(); return end
     local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local atlas
+    if not canaccessvalue(role) then icon:Hide(); return end
     if role=="TANK" then atlas="groupfinder-icon-role-large-tank" elseif role=="HEALER" then atlas="groupfinder-icon-role-large-heal" elseif role=="DAMAGER" then atlas="groupfinder-icon-role-large-dps" end
     if atlas then icon:SetAtlas(atlas,true); icon:Show() else icon:Hide() end
 end
