@@ -9,12 +9,7 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs", defensives = "Defensives" }
 local AURA_TYPES = {
     buffs = { groups = { { key = "buffs", filter = "HELPFUL|PLAYER" } } },
-    debuffs = { groups = {
-        -- Groups do not deduplicate overlapping filters; exclude important auras
-        -- from the normal group inside Blizzard's filter engine.
-        { key = "debuffsImportant", filter = "HARMFUL|RAID_IN_COMBAT", important = true },
-        { key = "debuffs", filter = "HARMFUL|!RAID_IN_COMBAT" },
-    } },
+    debuffs = { groups = { { key = "debuffs", filter = "HARMFUL" } } },
     defensives = { groups = {
         { key = "defensivesBig", filter = "HELPFUL|BIG_DEFENSIVE" },
         { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
@@ -22,6 +17,20 @@ local AURA_TYPES = {
 }
 local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true }
 local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true }
+
+local function GetDebuffFilterForCurrentContent()
+    -- Match Blizzard's Delve detection, independently of party/instance type.
+    -- Follower dungeons and story raids also use the solo-style presentation.
+    if C_DelvesUI.HasActiveDelve() or C_LFGInfo.IsInLFGFollowerDungeon() or DifficultyUtil.InStoryRaid() then
+        return "HARMFUL"
+    end
+    local inInstance, instanceType = IsInInstance()
+    if inInstance and (instanceType == "party" or instanceType == "raid" or instanceType == "arena" or instanceType == "pvp") then
+        return "HARMFUL|RAID_IN_COMBAT"
+    end
+    -- Open world, scenarios, and unknown content retain complete coverage.
+    return "HARMFUL"
+end
 
 local function BuildCandidateFilters(auraType)
     if auraType ~= "buffs" then return {} end
@@ -59,14 +68,8 @@ local function SetFlowLayout(container, anchorPoint, growthX, growthY)
     end
 end
 
-local function GetAuraGroupSize(layout, group)
+local function InitializeAuraButton(button, layout)
     local size = math.max(8, tonumber(layout.iconSize) or 22)
-    if group and group.important then return math.floor(size * 1.20 + 0.5) end
-    return size
-end
-
-local function InitializeAuraButton(button, layout, size)
-    size = size or GetAuraGroupSize(layout)
     button:SetSize(size, size)
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(button); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92); button:SetIcon(icon)
@@ -102,15 +105,9 @@ local function ApplyContainerLayout(frame, auraType)
     data.anchor:SetSize(width, size)
     PositionAuraAnchor(frame, auraType)
     SetFlowLayout(data.container, flowAnchor, growthX, growthY)
-    if auraType == "debuffs" then
-        data.anchor:SetHeight(GetAuraGroupSize(layout, AURA_TYPES.debuffs.groups[1]))
-        data.container:SetFlowLayoutMaximumLineSize(width)
-    end
-    for _, group in ipairs(AURA_TYPES[auraType].groups) do
-        local groupKey = group.key
-        local groupSize = GetAuraGroupSize(layout, group)
+    for _, groupKey in ipairs(data.groupKeys or {}) do
         if data.container.SetAuraGroupLayout then
-            data.container:SetAuraGroupLayout(groupKey, { elementWidth = groupSize, elementHeight = groupSize, elementSpacing = spacing, lineSpacing = spacing })
+            data.container:SetAuraGroupLayout(groupKey, { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing })
         end
         if data.container.SetAuraGroupEnabled then data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false) end
     end
@@ -174,16 +171,14 @@ local function CreateAuraContainer(frame, auraType)
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
     local groupKeys = {}
     for _, group in ipairs(typeInfo.groups or {}) do
-        local groupSize = GetAuraGroupSize(layout, group)
         local groupOptions = {
-            -- Blizzard caps each group independently; both debuff groups get the
-            -- configured limit, so their combined display can reach 2 * maxCount.
             maxFrameCount = maxCount,
             candidateFilters = BuildCandidateFilters(auraType),
-            layout = { elementWidth = groupSize, elementHeight = groupSize, elementSpacing = spacing, lineSpacing = spacing },
-            initializeFrame = function(button) InitializeAuraButton(button, layout, groupSize) end,
+            layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
+            initializeFrame = function(button) InitializeAuraButton(button, layout) end,
         }
-        local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
+        local filter = auraType == "debuffs" and GetDebuffFilterForCurrentContent() or group.filter
+        local added, addError = pcall(container.AddAuraGroup, container, group.key, filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
         groupKeys[#groupKeys + 1] = group.key
     end
@@ -330,9 +325,22 @@ function ns.PreviewAuraMover(unitType, auraType, enabled)
 end
 
 local deferred = CreateFrame("Frame")
+deferred:RegisterEvent("PLAYER_ENTERING_WORLD")
+deferred:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+deferred:RegisterEvent("PLAYER_DIFFICULTY_CHANGED")
+deferred:RegisterEvent("GROUP_ROSTER_UPDATE")
+deferred:RegisterEvent("ACTIVE_DELVE_DATA_UPDATE")
 deferred:SetScript("OnEvent", function(self)
+    -- Keep container mutations out of combat; re-evaluate the latest context
+    -- after lockdown rather than saving a potentially stale filter string.
+    if InCombatLockdown() then self:RegisterEvent("PLAYER_REGEN_ENABLED"); return end
     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     AttachAuras()
+    local filter = GetDebuffFilterForCurrentContent()
+    for _, frame in pairs(ns.frames or {}) do
+        local data = frame.MIUF_Auras and frame.MIUF_Auras.debuffs
+        if data then data.container:SetAuraGroupFilterString("debuffs", filter) end
+    end
 end)
 
 local originalSpawnAllFrames = ns.SpawnAllFrames
