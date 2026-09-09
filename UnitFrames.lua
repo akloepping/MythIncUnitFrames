@@ -8,6 +8,32 @@ local RAID_TARGET_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local frames, previewEnabled = {}, {}
 ns.frames = frames
 
+-- Match SecureButton_GetModifiedUnit's player/pet swap under toggleForVehicle.
+-- Blizzard uses "vehicle" for the player's visual data (the secure click uses
+-- the equivalent "pet" token). Keep logical identities/configuration unchanged.
+local VEHICLE_DISPLAY_UNITS = { player = "vehicle", pet = "player" }
+local VEHICLE_EVENTS = {
+    UNIT_ENTERING_VEHICLE = true, UNIT_ENTERED_VEHICLE = true,
+    UNIT_EXITING_VEHICLE = true, UNIT_EXITED_VEHICLE = true,
+    UNIT_PET = true, VEHICLE_UPDATE = true,
+}
+
+function ns.GetFrameDisplayUnit(frame)
+    local unit = frame and frame.MIUF_Unit
+    if VEHICLE_DISPLAY_UNITS[unit] and UnitHasVehicleUI("player") then
+        return VEHICLE_DISPLAY_UNITS[unit]
+    end
+    return unit
+end
+
+-- Subscribe to both identities at creation, including during combat transitions.
+function ns.RegisterFrameUnitEvent(eventFrame, event, frame)
+    local unit = frame.MIUF_Unit
+    local vehicleUnit = VEHICLE_DISPLAY_UNITS[unit]
+    if vehicleUnit then eventFrame:RegisterUnitEvent(event, unit, vehicleUnit)
+    else eventFrame:RegisterUnitEvent(event, unit) end
+end
+
 local function CreateBackground(parent)
     local bg = parent:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(parent)
@@ -54,7 +80,7 @@ local function BuildFrameState(unitType, overrides)
 end
 
 local function UpdateHealth(frame)
-    local unit = frame.MIUF_Unit
+    local unit = ns.GetFrameDisplayUnit(frame)
     if not unit then return end
     local value = UnitHealthPercent(unit, true, CurveConstants and CurveConstants.ScaleTo100)
     if value ~= nil then frame.Health:SetValue(value) end
@@ -64,21 +90,22 @@ local function UpdateHealth(frame)
 end
 
 local function UpdatePower(frame)
-    local unit = frame.MIUF_Unit
+    local unit = ns.GetFrameDisplayUnit(frame)
     if not unit then return end
     local value = UnitPowerPercent(unit, nil, false, CurveConstants and CurveConstants.ScaleTo100)
     if value ~= nil then frame.Power:SetValue(value) end
 end
 
 local function UpdateName(frame)
-    local unit = frame.MIUF_Unit
+    local unit = ns.GetFrameDisplayUnit(frame)
     if not unit then return end
     local name = UnitName(unit)
     frame.NameText:SetText(name or "")
 end
 
 local function UpdatePortrait(frame)
-    if frame.Portrait and frame.MIUF_Unit then SetPortraitTexture(frame.Portrait, frame.MIUF_Unit) end
+    local unit = ns.GetFrameDisplayUnit(frame)
+    if frame.Portrait and unit then SetPortraitTexture(frame.Portrait, unit) end
 end
 
 local function GetAutomaticHealthColor(unit)
@@ -112,12 +139,12 @@ end
 
 local function ApplyColors(frame, appearance)
     if appearance.healthColor == "automatic" then
-        local r,g,b = GetAutomaticHealthColor(frame.MIUF_Unit); frame.Health:SetStatusBarColor(r,g,b,1)
+        local r,g,b = GetAutomaticHealthColor(ns.GetFrameDisplayUnit(frame)); frame.Health:SetStatusBarColor(r,g,b,1)
     else
         local e = ns.Media.healthColors[appearance.healthColor] or ns.Media.healthColors.green; local c=e.rgb; frame.Health:SetStatusBarColor(c[1],c[2],c[3],1)
     end
     if appearance.powerColor == "automatic" then
-        local r,g,b = GetAutomaticPowerColor(frame.MIUF_Unit); frame.Power:SetStatusBarColor(r,g,b,1)
+        local r,g,b = GetAutomaticPowerColor(ns.GetFrameDisplayUnit(frame)); frame.Power:SetStatusBarColor(r,g,b,1)
     else
         local e = ns.Media.powerColors[appearance.powerColor] or ns.Media.powerColors.blue; local c=e.rgb; frame.Power:SetStatusBarColor(c[1],c[2],c[3],1)
     end
@@ -138,8 +165,9 @@ local function UpdateRaidTarget(frame, appearance)
     local holder,icon=frame.RaidTargetIndicatorFrame,frame.RaidTargetIndicator
     if not holder or not icon then return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
-    if appearance.showRaidMarker==false or not frame.MIUF_Unit or not UnitExists(frame.MIUF_Unit) then holder:Hide(); return end
-    local index=GetRaidTargetIndex(frame.MIUF_Unit)
+    local unit=ns.GetFrameDisplayUnit(frame)
+    if appearance.showRaidMarker==false or not unit or not UnitExists(unit) then holder:Hide(); return end
+    local index=GetRaidTargetIndex(unit)
     if index then icon:SetTexture(RAID_TARGET_TEXTURE); SetRaidTargetIconTexture(icon,index); holder:Show() else holder:Hide() end
 end
 
@@ -147,13 +175,13 @@ local function UpdateRoleIndicator(frame, appearance)
     local icon=frame.GroupRoleIndicator; if not icon then return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     if not appearance.showRoleIcon then icon:Hide(); return end
-    local role=UnitGroupRolesAssigned(frame.MIUF_Unit); local atlas
+    local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local atlas
     if role=="TANK" then atlas="groupfinder-icon-role-large-tank" elseif role=="HEALER" then atlas="groupfinder-icon-role-large-heal" elseif role=="DAMAGER" then atlas="groupfinder-icon-role-large-dps" end
     if atlas then icon:SetAtlas(atlas,true); icon:Show() else icon:Hide() end
 end
 
 local function UpdateConnectionState(frame)
-    local text,unit=frame.OfflineText,frame.MIUF_Unit
+    local text,unit=frame.OfflineText,ns.GetFrameDisplayUnit(frame)
     if not text or not unit or not UnitExists(unit) then if text then text:Hide() end; return end
     local connected=UnitIsConnected(unit)
     if canaccessvalue and not canaccessvalue(connected) then text:Hide(); return end
@@ -240,7 +268,9 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     local size=ns.GetSize(unitType); local frame=CreateFrame("Button",name,UIParent,"SecureUnitButtonTemplate")
     frame.MIUF_Unit=unit; frame.MIUF_UnitType=unitType; frame.MIUF_PositionKey=positionKey; frame.__unit=unit
     frame:SetAttribute("unit",unit); frame:SetAttribute("*type1","target"); frame:SetAttribute("*type2","togglemenu"); frame:RegisterForClicks("AnyUp"); frame:SetSize(size.width,size.height)
-    frame:SetScript("OnEnter",function(self) GameTooltip_SetDefaultAnchor(GameTooltip,self); GameTooltip:SetUnit(self.MIUF_Unit) end); frame:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    if VEHICLE_DISPLAY_UNITS[unit] then frame:SetAttribute("toggleForVehicle",true) end
+    frame.MIUF_DisplayUnit=ns.GetFrameDisplayUnit(frame)
+    frame:SetScript("OnEnter",function(self) GameTooltip_SetDefaultAnchor(GameTooltip,self); GameTooltip:SetUnit(ns.GetFrameDisplayUnit(self)) end); frame:SetScript("OnLeave",function() GameTooltip:Hide() end)
     frame.Background=CreateBackground(frame); frame.Border=CreateBorder(frame)
     local health=CreateFrame("StatusBar",nil,frame); health:SetMinMaxValues(0,100); health:SetStatusBarTexture(FLAT); local hbg=health:CreateTexture(nil,"BACKGROUND"); hbg:SetAllPoints(health); hbg:SetColorTexture(0.08,0.08,0.08,1); frame.Health=health
     local power=CreateFrame("StatusBar",nil,frame); power:SetMinMaxValues(0,100); power:SetStatusBarTexture(FLAT); local pbg=power:CreateTexture(nil,"BACKGROUND"); pbg:SetAllPoints(power); pbg:SetColorTexture(0.05,0.05,0.05,1); frame.Power=power
@@ -252,11 +282,27 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     local marker=markerFrame:CreateTexture(nil,"OVERLAY"); marker:SetAllPoints(markerFrame); marker:SetTexture(RAID_TARGET_TEXTURE); frame.RaidTargetIndicator=marker
     if unitType=="player" or unitType=="party" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
 
-    frame:RegisterUnitEvent("UNIT_HEALTH",unit); frame:RegisterUnitEvent("UNIT_MAXHEALTH",unit); frame:RegisterUnitEvent("UNIT_POWER_UPDATE",unit); frame:RegisterUnitEvent("UNIT_MAXPOWER",unit); frame:RegisterUnitEvent("UNIT_DISPLAYPOWER",unit); frame:RegisterUnitEvent("UNIT_NAME_UPDATE",unit); frame:RegisterUnitEvent("UNIT_FACTION",unit); frame:RegisterUnitEvent("UNIT_CONNECTION",unit); frame:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE",unit); frame:RegisterUnitEvent("UNIT_MODEL_CHANGED",unit)
+    ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     if unit=="target" then frame:RegisterEvent("PLAYER_TARGET_CHANGED") elseif unit=="focus" then frame:RegisterEvent("PLAYER_FOCUS_CHANGED") elseif unit=="pet" then frame:RegisterUnitEvent("UNIT_PET","player") elseif unit=="targettarget" then frame:RegisterUnitEvent("UNIT_TARGET","target") end
 
+    if VEHICLE_DISPLAY_UNITS[unit] then
+        for event in pairs(VEHICLE_EVENTS) do
+            if event=="VEHICLE_UPDATE" then frame:RegisterEvent(event)
+            else frame:RegisterUnitEvent(event,"player") end
+        end
+    end
+
     frame:SetScript("OnEvent",function(self,event)
+        local displayUnit=ns.GetFrameDisplayUnit(self)
+        if displayUnit~=self.MIUF_DisplayUnit or (VEHICLE_DISPLAY_UNITS[self.MIUF_Unit] and VEHICLE_EVENTS[event]) then
+            self.MIUF_DisplayUnit=displayUnit
+            UpdateFrame(self)
+            if ns.UpdateFrameAuraUnit then ns.UpdateFrameAuraUnit(self) end
+            if ns.UpdateFrameCastbar then ns.UpdateFrameCastbar(self) end
+            if GameTooltip:IsOwned(self) then GameTooltip:SetUnit(displayUnit) end
+            return
+        end
         if event=="UNIT_HEALTH" or event=="UNIT_MAXHEALTH" then UpdateHealth(self)
         elseif event=="UNIT_POWER_UPDATE" or event=="UNIT_MAXPOWER" then UpdatePower(self)
         elseif event=="UNIT_DISPLAYPOWER" then UpdatePower(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)

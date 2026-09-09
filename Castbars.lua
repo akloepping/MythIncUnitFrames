@@ -31,7 +31,7 @@ end
 local function RefreshCastbar(frame)
     local holder = frame and frame.CastbarHolder
     local bar = frame and frame.Castbar
-    local unit = frame and frame.MIUF_Unit
+    local unit = ns.GetFrameDisplayUnit(frame)
     if not holder or not bar or not unit or not UnitExists(unit) then
         if holder then holder:Hide() end
         return
@@ -73,6 +73,8 @@ local function RefreshCastbar(frame)
     bar:Show()
     holder:Show()
 end
+
+ns.UpdateFrameCastbar = RefreshCastbar
 
 local function CreateCastbar(frame)
     if not frame or frame.Castbar or not CASTBAR_TYPES[frame.MIUF_UnitType] then return end
@@ -116,19 +118,19 @@ local function CreateCastbar(frame)
     frame.Castbar = bar
 
     local events = CreateFrame("Frame")
-    events:RegisterUnitEvent("UNIT_SPELLCAST_START", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_STOP", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_DELAYED", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_UPDATE", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_STOP", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTIBLE", frame.MIUF_Unit)
-    events:RegisterUnitEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE", frame.MIUF_Unit)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_START", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_STOP", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_FAILED", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_INTERRUPTED", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_DELAYED", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_CHANNEL_START", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_CHANNEL_UPDATE", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_CHANNEL_STOP", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_EMPOWER_START", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_EMPOWER_UPDATE", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_EMPOWER_STOP", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_INTERRUPTIBLE", frame)
+    ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_NOT_INTERRUPTIBLE", frame)
     events:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     if frame.MIUF_Unit == "target" then

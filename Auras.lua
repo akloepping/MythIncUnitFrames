@@ -168,7 +168,7 @@ local function CreateAuraContainer(frame, auraType)
         groupKeys[#groupKeys + 1] = group.key
     end
     SetFlowLayout(container, flowAnchor, growthX, growthY)
-    local unitSet, unitError = pcall(container.SetUnit, container, frame.MIUF_Unit)
+    local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
     if not unitSet then print("|cffff5555MIUF: aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
     frame.MIUF_Auras = frame.MIUF_Auras or {}
     frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, groupKeys = groupKeys }
@@ -235,9 +235,17 @@ local function CreateDispelHighlight(frame)
     }
     local added, slotOrError = pcall(container.AddAuraSlot, container, "miufDispel", "HARMFUL|RAID", slotOptions)
     if not added then print("|cffff5555MIUF: dispel highlight failed: " .. tostring(slotOrError) .. "|r"); container:Hide(); return end
-    local unitSet, unitError = pcall(container.SetUnit, container, frame.MIUF_Unit)
+    local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
     if not unitSet then print("|cffff5555MIUF: dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r"); container:Hide(); return end
     frame.MIUF_DispelHighlight = container
+end
+
+function ns.UpdateFrameAuraUnit(frame)
+    local unit = ns.GetFrameDisplayUnit(frame)
+    for _, data in pairs(frame.MIUF_Auras or {}) do
+        data.container:SetUnit(unit)
+    end
+    if frame.MIUF_DispelHighlight then frame.MIUF_DispelHighlight:SetUnit(unit) end
 end
 
 local function AttachFrameAuras(frame)
