@@ -9,7 +9,7 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs", defensives = "Defensives" }
 local AURA_TYPES = {
     buffs = { groups = { { key = "buffs", filter = "HELPFUL|PLAYER" } } },
-    debuffs = { groups = { { key = "debuffs", filter = "HARMFUL" } } },
+    debuffs = { groups = { { key = "debuffs", filter = "HARMFUL|RAID_IN_COMBAT" } } },
     defensives = { groups = {
         { key = "defensivesBig", filter = "HELPFUL|BIG_DEFENSIVE" },
         { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
