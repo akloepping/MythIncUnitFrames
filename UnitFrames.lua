@@ -290,6 +290,9 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
 
     ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    -- Boss tokens become available or change after initial creation. Unit watch
+    -- handles visibility; this event takes the full UpdateFrame path below.
+    if unitType=="boss" then frame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT") end
     if unit=="target" then frame:RegisterEvent("PLAYER_TARGET_CHANGED") elseif unit=="focus" then frame:RegisterEvent("PLAYER_FOCUS_CHANGED") elseif unit=="pet" then frame:RegisterUnitEvent("UNIT_PET","player") elseif unit=="targettarget" then frame:RegisterUnitEvent("UNIT_TARGET","target") end
 
     if VEHICLE_DISPLAY_UNITS[unit] then
