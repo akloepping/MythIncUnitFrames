@@ -85,7 +85,13 @@ local function UpdateHealth(frame)
     local value = UnitHealthPercent(unit, true, CurveConstants and CurveConstants.ScaleTo100)
     if value ~= nil then frame.Health:SetValue(value) end
     if frame.HealthText then
-        if value ~= nil and (not canaccessvalue or canaccessvalue(value)) then frame.HealthText:SetFormattedText("%.0f%%", value) else frame.HealthText:SetText("") end
+        -- SetFormattedText is a secret-capable display sink. Do not inspect or
+        -- calculate with the percentage in Lua; let the FontString format it.
+        local displayed = false
+        if value ~= nil then
+            displayed = pcall(frame.HealthText.SetFormattedText, frame.HealthText, "%.0f%%", value)
+        end
+        if not displayed then frame.HealthText:SetText("") end
     end
 end
 
