@@ -14,3 +14,4 @@ Auras.lua
 Groups.lua
 ConfigSession.lua
 Config.lua
+BlizzardFrames.lua
