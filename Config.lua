@@ -432,7 +432,10 @@ local function ApplyPendingChanges()
     if pendingTrackedBuffs then ns.SetTrackedBuffs(pendingTrackedBuffs) end
     pendingEnabled={}; pendingAuraLayouts={}; pendingFrameSettings={}; pendingGroupLayouts={}; pendingTrackedBuffs=nil; hasPendingChanges=false
     previewAuraUnitType,previewAuraType=nil,nil
-    previewFrameType=nil; applyChangesButton:SetEnabled(false); ReloadUI()
+    previewFrameType=nil; applyChangesButton:SetEnabled(false)
+    ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
+    ns.SetMoversLocked(true)
+    ReloadUI()
 end
 
 local function SelectPage(page)
