@@ -18,7 +18,7 @@ local AURA_TYPES = {
 local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true, raid = true }
 local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true }
 
-local FILTERED_DEBUFF_TYPES = { player = true, party = true, targettarget = true }
+local FILTERED_DEBUFF_TYPES = { player = true, party = true, targettarget = true, raid = true }
 local DEBUFF_EXCLUSIONS = {
     [26013] = true, [71041] = true, [206151] = true, [1313593] = true, -- Deserter / Challenger's Burden
     [57723] = true, [390435] = true, [57724] = true, [80354] = true, -- Exhaustion / Sated
@@ -181,8 +181,7 @@ local function CreateAuraContainer(frame, auraType)
             layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
             initializeFrame = function(button) InitializeAuraButton(button, layout) end,
         }
-        local filter = auraType == "debuffs" and frame.MIUF_UnitType == "raid" and "HARMFUL|RAID_IN_COMBAT" or group.filter
-        local added, addError = pcall(container.AddAuraGroup, container, group.key, filter, groupOptions)
+        local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
         groupKeys[#groupKeys + 1] = group.key
     end
