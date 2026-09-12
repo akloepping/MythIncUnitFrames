@@ -314,14 +314,22 @@ end
 
 local raidAnchor, raidPreview, raidGhosts = nil, nil, {}
 
+local function PositionRaidAnchor()
+    -- ConfigSession supplies the staged position, or the saved position when
+    -- none is staged. Locking visuals must not abandon or commit that position.
+    local position = ns.ConfigSessionGetPosition("raid")
+    raidAnchor:ClearAllPoints()
+    raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
+end
+
 function ns.GetRaidAnchor()
     if not raidAnchor then
         if InCombatLockdown() then return nil end
         raidAnchor = CreateFrame("Frame", nil, UIParent)
         raidAnchor:SetMovable(true)
-        local size, position = ns.GetSize("raid"), ns.GetPosition("raid")
+        local size = ns.GetSize("raid")
         raidAnchor:SetSize(size.width,size.height)
-        raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
+        PositionRaidAnchor()
         ns.raidFrameMoverOwner = raidAnchor
     end
     return raidAnchor
@@ -329,10 +337,9 @@ end
 
 function ns.ApplyRaidLayout()
     if InCombatLockdown() or not raidAnchor then return end
-    local size, position = ns.GetSize("raid"), ns.GetPosition("raid")
+    local size = ns.GetSize("raid")
     raidAnchor:SetSize(size.width,size.height)
-    raidAnchor:ClearAllPoints()
-    raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
+    PositionRaidAnchor()
     local positions = ns.CalculateRaidGeometry(ns.GetGroupLayout("raid"),size.width,size.height)
     for index, offset in ipairs(positions) do
         local frame = ns.frames and ns.frames["raid"..index]
@@ -353,7 +360,6 @@ function ns.UpdateRaidPreview(locked)
     end
     local size = ns.ConfigSessionGetFrame("raid").size
     local layout = ns.ConfigSessionGetGroup("raid")
-    local position = ns.ConfigSessionGetPosition("raid")
     ns.GetRaidAnchor()
     if not raidPreview then
         raidPreview = CreateFrame("Frame", nil, raidAnchor)
@@ -384,8 +390,7 @@ function ns.UpdateRaidPreview(locked)
         end
     end
     raidAnchor:SetSize(size.width, size.height)
-    raidAnchor:ClearAllPoints()
-    raidAnchor:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
+    PositionRaidAnchor()
     local positions = ns.CalculateRaidGeometry(layout, size.width, size.height)
     for index, ghost in ipairs(raidGhosts) do
         local position = positions[index]
