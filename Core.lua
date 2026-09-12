@@ -27,17 +27,16 @@ local defaultSizes = {
     player = { width = 250, height = 54 }, target = { width = 250, height = 54 },
     focus = { width = 220, height = 48 }, pet = { width = 180, height = 38 },
     targettarget = { width = 180, height = 38 }, party = { width = 210, height = 46 },
-    boss = { width = 220, height = 46 },
+    boss = { width = 220, height = 46 }, raid = { width = 120, height = 30 },
 }
 
 local defaultEnabled = {
     player = true, target = true, focus = true, pet = true,
-    targettarget = true, party = true, boss = true,
+    targettarget = true, party = true, boss = true, raid = false,
 }
 
 local defaultGroupLayout = {
-    raid = { memberOrientation = "VERTICAL", memberDirection = "DOWN", memberSpacing = 4,
-        subgroupOrientation = "HORIZONTAL", subgroupDirection = "RIGHT", subgroupSpacing = 16, groupsPerRow = 4 },
+    raid = { orientation = "VERTICAL", growth = "RIGHT" },
     party = { orientation = "VERTICAL", direction = "DOWN", spacing = 32, includePlayer = false },
     boss = { orientation = "VERTICAL", direction = "DOWN", spacing = 32 },
 }
@@ -75,6 +74,7 @@ for unitType in pairs(defaultSizes) do
         debuffs = { enabled = true, showText = true, iconSize = 22, maxCount = 6, spacing = 2, anchor = "BOTTOM", growth = "RIGHT", xOffset = 0, yOffset = -26 },
         defensives = { enabled = true, showText = true, iconSize = 20, maxCount = 3, spacing = 2, anchor = "TOP", growth = "LEFT", xOffset = 0, yOffset = 26 },
     }
+    if unitType == "raid" then defaultAuraLayout[unitType] = nil end
 end
 
 local function CopyTable(source)
@@ -120,7 +120,16 @@ local function NormalizeProfile(profile)
     profile.appearance = FillMissing(profile.appearance, defaultAppearance)
     profile.auraLayout = FillMissing(profile.auraLayout, defaultAuraLayout)
     profile.enabled = FillMissing(profile.enabled, defaultEnabled)
+    -- Normalize the branch's prototype before deep filling masks its old keys.
+    local raid = type(profile.groupLayout) == "table" and profile.groupLayout.raid
+    raid = type(raid) == "table" and raid or {}
+    local orientation = raid.orientation or raid.memberOrientation
+    local growth = raid.growth or raid.subgroupDirection
     profile.groupLayout = FillMissing(profile.groupLayout, defaultGroupLayout)
+    profile.groupLayout.raid = {
+        orientation = orientation == "HORIZONTAL" and "HORIZONTAL" or "VERTICAL",
+        growth = growth == "LEFT" and "LEFT" or "RIGHT",
+    }
     if type(profile.trackedBuffs) ~= "table" then profile.trackedBuffs = {} end
 
     local legacyLocked = type(profile.locked) == "boolean" and profile.locked or true

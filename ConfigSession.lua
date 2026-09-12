@@ -161,7 +161,6 @@ function ns.ConfigSessionStageResetAll()
         pendingEnabled[unitType]=ns.defaultEnabled[unitType]
         pendingAuraLayouts[unitType]=CopyValues(ns.defaultAuraLayout[unitType])
     end
-    pendingGroupLayouts.raid=CopyValues(ns.defaultGroupLayout.raid)
     pendingPositions.raid=CopyValues(ns.defaultPositions.raid)
     pendingTrackedBuffs={}
 end

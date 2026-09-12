@@ -2,8 +2,8 @@ local ADDON_NAME, ns = ...
 
 local MEDIA = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
-local FRAME_TYPES = { "player", "target", "focus", "pet", "targettarget", "party", "boss" }
-local DISPLAY_NAMES = { player="Player", target="Target", focus="Focus", pet="Pet", targettarget="Target of Target", party="Party", boss="Boss" }
+local FRAME_TYPES = { "player", "target", "focus", "pet", "targettarget", "party", "boss", "raid" }
+local DISPLAY_NAMES = { player="Player", target="Target", focus="Focus", pet="Pet", targettarget="Target of Target", party="Party", boss="Boss", raid="Raid" }
 local AURA_TYPES = { "buffs", "debuffs", "defensives" }
 local AURA_NAMES = { buffs="Buffs", debuffs="Debuffs", defensives="Defensives" }
 local AURA_FIELDS = { buffs="PlayerBuffs", debuffs="CombatDebuffs", defensives="ExternalDefensives" }
@@ -34,7 +34,7 @@ local profileButtons = {}
 local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
-local raidPage, refreshRaidControls
+local raidPreviewControls
 local MarkPending
 local previewFrameType
 local previewAuraUnitType, previewAuraType
@@ -118,6 +118,10 @@ local function PreviewFrameSliders()
 
     ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
     MarkPending("Configuration changes are pending.")
+    if selectedType=="raid" then
+        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+        return
+    end
     if InCombatLockdown() or not ns.PreviewFrameType then return end
     ns.PreviewFrameType(selectedType,{
         size={width=width,height=height},
@@ -172,7 +176,7 @@ local function RestoreAuraPreview()
 end
 
 local function AuraAvailable(unitType,auraType)
-    if unitType=="boss" then return false end
+    if unitType=="boss" or unitType=="raid" then return false end
     if auraType=="buffs" then return unitType=="player" or unitType=="target" or unitType=="focus" or unitType=="party" or unitType=="targettarget" end
     if auraType=="debuffs" then return unitType~="pet" end
     if auraType=="defensives" then return unitType=="player" or unitType=="party" end
@@ -209,7 +213,7 @@ local function CopyWorking()
 end
 
 local function StageGroupControls()
-    if refreshing or (selectedType~="party" and selectedType~="boss") then return end
+    if refreshing or (selectedType~="party" and selectedType~="boss" and selectedType~="raid") then return end
     ns.ConfigSessionStageGroup(selectedType,groupWorking)
     MarkPending("Group layout changes are pending.")
 end
@@ -232,10 +236,13 @@ local function RefreshFrameControls()
 end
 
 local function RefreshGroupControls()
-    local show=selectedType=="party" or selectedType=="boss"; partyLayoutPanel:SetShown(show); if not show then return end
-    partyLayoutPanel.Title:SetText(selectedType=="party" and "Party group layout" or "Boss group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
-    partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical")); local dir=groupWorking.direction or "DOWN"
-    partyDirectionButton:SetText("Grow: "..dir:sub(1,1)..dir:sub(2):lower()); partySpacingSlider:SetValue(groupWorking.spacing or 32)
+    local isRaid=selectedType=="raid"
+    raidPreviewControls:SetShown(isRaid)
+    local show=selectedType=="party" or selectedType=="boss" or isRaid; partyLayoutPanel:SetShown(show); if not show then return end
+    partyLayoutPanel.Title:SetText(DISPLAY_NAMES[selectedType].." group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
+    partySpacingSlider:SetShown(not isRaid); partySpacingSlider.ValueBox:SetShown(not isRaid)
+    partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical")); local dir=isRaid and groupWorking.growth or (groupWorking.direction or "DOWN")
+    partyDirectionButton:SetText("Grow: "..dir:sub(1,1)..dir:sub(2):lower()); if not isRaid then partySpacingSlider:SetValue(groupWorking.spacing or 32) end
     partyIncludePlayerButton:SetText("Include Player: "..(groupWorking.includePlayer and "On" or "Off"))
 end
 
@@ -328,9 +335,8 @@ function ns.RefreshConfig()
     else
         selectedLabel:SetText(DISPLAY_NAMES[selectedType].." Settings")
     end
-    if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end
-    auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
-    raidPage:SetShown(selectedPage=="raid"); if selectedPage=="raid" then selectedLabel:SetText("Raid Layout Preview"); refreshRaidControls() end
+    if (selectedType=="boss" or selectedType=="raid") and selectedPage=="auras" then selectedPage="frames" end
+    auraTab:SetShown((selectedType~="boss" and selectedType~="raid") or selectedPage=="profiles")
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
@@ -394,12 +400,13 @@ local function CreateShell()
         local check=CreateFrame("CheckButton",nil,row,"UICheckButtonTemplate"); check:SetSize(24,24); check:SetPoint("LEFT"); check:SetScript("OnClick",function(self)
             if InCombatLockdown() then self:SetChecked(ns.ConfigSessionGetEnabled(unitType)); return end
             ns.ConfigSessionStageEnabled(unitType,self:GetChecked() and true or false); MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
+            if unitType=="raid" and not self:GetChecked() then ns.HideRaidPreview() end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
-            ns.HideRaidPreview(); selectedType=unitType; if selectedPage=="profiles" or selectedPage=="raid" then selectedPage="frames" end; ns.RefreshConfig()
+            ns.HideRaidPreview(); selectedType=unitType; if selectedPage=="profiles" or unitType=="raid" then selectedPage="frames" end; ns.RefreshConfig()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
@@ -423,10 +430,24 @@ local function CreateFramesPage()
     sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
     local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
-    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN"; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); if selectedType~="raid" then groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if selectedType=="raid" then groupWorking.growth=groupWorking.growth=="LEFT" and "RIGHT" or "LEFT" elseif groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
+    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing and selectedType~="raid" then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
+
+    raidPreviewControls=CreateFrame("Frame",nil,framesPage); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-663)
+    local showRaid=MakeButton(raidPreviewControls,"Show Raid Preview",155,24); showRaid:SetPoint("TOPLEFT"); showRaid:SetScript("OnClick",ns.ShowRaidPreview)
+    local hideRaid=MakeButton(raidPreviewControls,"Hide Raid Preview",155,24); hideRaid:SetPoint("LEFT",showRaid,"RIGHT",8,0); hideRaid:SetScript("OnClick",ns.HideRaidPreview)
+    local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT",0,-30)
+    revertRaid:SetScript("OnClick",function()
+        if InCombatLockdown() then return end
+        ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
+        ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
+        ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
+        ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
+        ns.RefreshConfig()
+        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+    end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
     fontMenu=CreateFrame("Frame",nil,text,"BackdropTemplate"); fontMenu:SetWidth(190); fontMenu:SetHeight((#ns.Media.fontOrder*24)+8); fontMenu:SetPoint("TOPLEFT",fontButton,"BOTTOMLEFT",0,-2); fontMenu:SetFrameLevel(text:GetFrameLevel()+20)
@@ -512,59 +533,6 @@ local function CreateAurasPage()
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
-local function CreateRaidPage()
-    raidPage=CreateFrame("Frame",nil,config); raidPage:SetPoint("TOPLEFT",160,-80); raidPage:SetPoint("BOTTOMRIGHT",-10,50)
-    local tab=MakeButton(config,"Raid Layout",110,28); tab:SetPoint("LEFT",profileTab,"RIGHT",8,0)
-    tab:SetScript("OnClick",function() SelectPage("raid") end)
-    local controls, raidWorking = {}, {}
-    local function Stage()
-        if refreshing or InCombatLockdown() then return end
-        ns.ConfigSessionStageGroup("raid",raidWorking); MarkPending("Raid geometry changes are pending.")
-        refreshRaidControls()
-        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
-    end
-    -- Both geometry levels use the same control builder and orientation rules.
-    local function BuildLevel(title,prefix,y)
-        local panel=MakeSection(raidPage,title,650,150); panel:SetPoint("TOPLEFT",20,y)
-        local orientation=MakeButton(panel,"",180,26); orientation:SetPoint("TOPLEFT",15,-35)
-        local direction=MakeButton(panel,"",140,26); direction:SetPoint("LEFT",orientation,"RIGHT",10,0)
-        local spacing=MakeSlider(panel,"Raid"..prefix.."Spacing","Spacing",0,80,1,180); spacing:SetPoint("TOPLEFT",15,-85)
-        orientation:SetScript("OnClick",function()
-            raidWorking[prefix.."Orientation"]=Cycle(raidWorking[prefix.."Orientation"],GROUP_ORIENTATION_ORDER)
-            raidWorking[prefix.."Direction"]=raidWorking[prefix.."Orientation"]=="HORIZONTAL" and "RIGHT" or "DOWN"; Stage()
-        end)
-        direction:SetScript("OnClick",function()
-            local horizontal=raidWorking[prefix.."Orientation"]=="HORIZONTAL"
-            local forward,reverse=horizontal and "RIGHT" or "DOWN",horizontal and "LEFT" or "UP"
-            raidWorking[prefix.."Direction"]=raidWorking[prefix.."Direction"]==forward and reverse or forward; Stage()
-        end)
-        spacing:HookScript("OnValueChanged",function(_,v) if not refreshing then raidWorking[prefix.."Spacing"]=Round(v); Stage() end end)
-        controls[prefix]={orientation=orientation,direction=direction,spacing=spacing}
-    end
-    BuildLevel("Raid members (5 per subgroup)","member",-62)
-    BuildLevel("Raid subgroups (8 groups)","subgroup",-222)
-    local rows=MakeSlider(raidPage,"RaidGroupsPerRow","Groups per row",1,8,1,180); rows:SetPoint("TOPLEFT",35,-412)
-    rows:HookScript("OnValueChanged",function(_,v) if not refreshing then raidWorking.groupsPerRow=Round(v); Stage() end end)
-    local show=MakeButton(raidPage,"Show Raid Preview",155,28); show:SetPoint("TOPLEFT",35,-480)
-    show:SetScript("OnClick",function() ns.ShowRaidPreview() end)
-    local hide=MakeButton(raidPage,"Hide Preview",120,28); hide:SetPoint("LEFT",show,"RIGHT",8,0); hide:SetScript("OnClick",ns.HideRaidPreview)
-    local revert=MakeButton(raidPage,"Revert Raid Changes",155,28); revert:SetPoint("LEFT",hide,"RIGHT",8,0)
-    revert:SetScript("OnClick",function()
-        if InCombatLockdown() then return end
-        ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid")); ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
-        refreshRaidControls(); MarkPending()
-        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
-    end)
-    refreshRaidControls=function()
-        local previous=refreshing; refreshing=true; raidWorking=ns.ConfigSessionGetGroup("raid")
-        for prefix,c in pairs(controls) do
-            c.orientation:SetText("Layout: "..GROUP_ORIENTATION_NAMES[raidWorking[prefix.."Orientation"]])
-            c.direction:SetText("Grow: "..raidWorking[prefix.."Direction"])
-            c.spacing:SetValue(raidWorking[prefix.."Spacing"])
-        end
-        rows:SetValue(raidWorking.groupsPerRow); refreshing=previous
-    end
-end
 local function CreateProfilesPage()
     profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",160,-80); profilesPage:SetPoint("BOTTOMRIGHT",-10,50)
     local section=MakeSection(profilesPage,"Profile Management",690,430); section:SetPoint("TOPLEFT",20,-62)
@@ -635,7 +603,7 @@ local function CreateProfilesPage()
 end
 
 local function CreateConfig()
-    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage(); CreateRaidPage()
+    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
     config:HookScript("OnShow",function() applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
 end

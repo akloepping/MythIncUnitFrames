@@ -286,27 +286,26 @@ watcher:SetScript("OnEvent", function(_, event)
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
 -- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
--- The secondary wrap axis grows down for horizontal groups, right for vertical groups.
+-- Fixed packing: 4 columns x 2 rows vertically, 2 columns x 4 rows horizontally.
+local RAID_SUBGROUP_GAP = 4
 function ns.CalculateRaidGeometry(layout, width, height)
-    local memberHorizontal = layout.memberOrientation == "HORIZONTAL"
-    local groupHorizontal = layout.subgroupOrientation == "HORIZONTAL"
-    local memberSpacing = math.max(0, tonumber(layout.memberSpacing) or 0)
-    local groupSpacing = math.max(0, tonumber(layout.subgroupSpacing) or 0)
-    local perRow = math.max(1, math.min(8, math.floor(tonumber(layout.groupsPerRow) or 4)))
-    local memberSign = (layout.memberDirection == "LEFT" or layout.memberDirection == "UP") and -1 or 1
-    local groupSign = (layout.subgroupDirection == "LEFT" or layout.subgroupDirection == "UP") and -1 or 1
-    local groupWidth = memberHorizontal and (5 * width + 4 * memberSpacing) or width
-    local groupHeight = memberHorizontal and height or (5 * height + 4 * memberSpacing)
+    local memberHorizontal = layout.orientation == "HORIZONTAL"
+    local columns = memberHorizontal and 2 or 4
+    local groupWidth = memberHorizontal and 5 * width or width
+    local groupHeight = memberHorizontal and height or 5 * height
     local positions, bounds = {}, { left = math.huge, right = -math.huge, top = -math.huge, bottom = math.huge }
     for index = 1, 40 do
         local group = math.floor((index - 1) / 5)
         local member = (index - 1) % 5
-        local major, minor = group % perRow, math.floor(group / perRow)
-        local gx = (groupHorizontal and major * groupSign or minor) * (groupWidth + groupSpacing)
-        local gy = -(groupHorizontal and minor or major * groupSign) * (groupHeight + groupSpacing)
-        local mx = memberHorizontal and member * memberSign * (width + memberSpacing) or 0
-        local my = memberHorizontal and 0 or -member * memberSign * (height + memberSpacing)
+        local column, row = group % columns, math.floor(group / columns)
+        local gx = column * (groupWidth + RAID_SUBGROUP_GAP)
+        local gy = -row * (groupHeight + RAID_SUBGROUP_GAP)
+        local mx = memberHorizontal and member * width or 0
+        local my = memberHorizontal and 0 or -member * height
         local x, y = gx + mx, gy + my
+        -- Mirror frame rectangles around the anchor frame's center, keeping
+        -- member 1 at (0, 0) and all subgroup blocks extending leftward.
+        if layout.growth == "LEFT" then x = -x end
         positions[index] = { x = x, y = y, group = group + 1, member = member + 1 }
         bounds.left = math.min(bounds.left, x); bounds.right = math.max(bounds.right, x + width)
         bounds.top = math.max(bounds.top, y); bounds.bottom = math.min(bounds.bottom, y - height)
@@ -324,7 +323,8 @@ end
 
 function ns.ShowRaidPreview()
     if InCombatLockdown() then return end
-    local size = ns.GetSize("party")
+    if not ns.ConfigSessionGetEnabled("raid") then ns.HideRaidPreview(); return end
+    local size = ns.ConfigSessionGetFrame("raid").size
     local layout = ns.ConfigSessionGetGroup("raid")
     local position = ns.ConfigSessionGetPosition("raid")
     if not raidAnchor then
