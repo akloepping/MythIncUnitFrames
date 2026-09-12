@@ -472,6 +472,7 @@ SlashCmdList.MYTHINCUNITFRAMES = function(msg)
     if command == "lock" then
         ns.SetFrameMoversLockedState(true)
         if ns.SetFrameMoversLocked then ns.SetFrameMoversLocked(true) end
+        if ns.ShowConfigForPendingFrameChanges then ns.ShowConfigForPendingFrameChanges() end
         if ns.RefreshConfig then ns.RefreshConfig() end
         print("|cff66ccffMythInc Unit Frames|r frames locked.")
         return

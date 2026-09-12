@@ -517,7 +517,7 @@ local function CreateFramesPage()
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 
     local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
-    frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); ns.RefreshConfig() end end)
+    frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); if locked then ns.ShowConfigForPendingFrameChanges() end; ns.RefreshConfig() end end)
 end
 
 local function CreateAurasPage()
@@ -637,6 +637,14 @@ end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
 
+-- User frame-lock actions reveal pending work; internal mover refreshes do not.
+function ns.ShowConfigForPendingFrameChanges()
+    if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
+    CreateConfig()
+    if not config:IsShown() then config:Show() end
+    ns.RefreshConfig()
+end
+
 local lockMoversButton=MakeButton(UIParent,"Lock Movers",120,28)
 lockMoversButton:SetPoint("TOP",UIParent,"TOP",0,-100)
 lockMoversButton:SetFrameStrata("DIALOG")
@@ -652,8 +660,10 @@ end
 
 lockMoversButton:SetScript("OnClick",function()
     if InCombatLockdown() then return end
+    local lockingFrames=not ns.AreFrameMoversLocked()
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
     ns.SetMoversLocked(true)
+    if lockingFrames then ns.ShowConfigForPendingFrameChanges() end
 end)
 
 local combatWatcher=CreateFrame("Frame")
