@@ -35,6 +35,8 @@ local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local raidPreviewControls
+local raidAxisButton, raidLegacyButton
+local raidHiddenPanels = {}
 local MarkPending
 local previewFrameType
 local previewAuraUnitType, previewAuraType
@@ -58,6 +60,12 @@ local function MakeSlider(parent,name,label,minValue,maxValue,step,width)
     slider:SetMinMaxValues(minValue,maxValue); slider:SetValueStep(step); slider:SetObeyStepOnDrag(true); slider:SetWidth(width or 235)
     local text,low,high=_G[slider:GetName().."Text"],_G[slider:GetName().."Low"],_G[slider:GetName().."High"]
     if text then text:SetText(label) end; if low then low:SetText(tostring(minValue)) end; if high then high:SetText(tostring(maxValue)) end
+    function slider:SetLimits(minimum, maximum)
+        minValue, maxValue = minimum, maximum
+        self:SetMinMaxValues(minValue,maxValue)
+        if low then low:SetText(tostring(minValue)) end
+        if high then high:SetText(tostring(maxValue)) end
+    end
     local box=CreateFrame("EditBox",nil,parent,"InputBoxTemplate"); box:SetSize(52,20); box:SetAutoFocus(false); box:SetJustifyH("CENTER"); box:SetPoint("TOP",slider,"BOTTOM",0,-1); slider.ValueBox=box
     local function Format(v) return step and step<1 and string.format("%.2f",v) or tostring(Round(v)) end
     local function Clamp(v)
@@ -97,6 +105,14 @@ end
 local function PreviewFrameSliders()
     if refreshing then return end
     local width,height=Round(widthSlider:GetValue()),Round(heightSlider:GetValue())
+    if selectedType=="raid" then
+        local settings=ns.ConfigSessionGetFrame("raid")
+        settings.size={width=width,height=height}
+        ns.ConfigSessionStageFrame("raid",settings)
+        MarkPending("Configuration changes are pending.")
+        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+        return
+    end
     local powerPercent=Round(powerSlider:GetValue())
     local portraitPercent=Round(portraitSlider:GetValue())
     local fontSize=Round(fontSlider:GetValue())
@@ -118,10 +134,6 @@ local function PreviewFrameSliders()
 
     ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
     MarkPending("Configuration changes are pending.")
-    if selectedType=="raid" then
-        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
-        return
-    end
     if InCombatLockdown() or not ns.PreviewFrameType then return end
     ns.PreviewFrameType(selectedType,{
         size={width=width,height=height},
@@ -225,6 +237,10 @@ local function StageAuraValue(key,value)
 end
 
 local function RefreshFrameControls()
+    local isRaid=selectedType=="raid"
+    for _,panel in ipairs(raidHiddenPanels) do panel:SetShown(not isRaid) end
+    for _,slider in ipairs({powerSlider,portraitSlider}) do slider:SetShown(not isRaid); slider.ValueBox:SetShown(not isRaid) end
+    portraitButton:SetShown(not isRaid); sideButton:SetShown(not isRaid)
     nameButton:SetText("Name: "..(working.showName and "On" or "Off")); healthTextButton:SetText("Health %: "..(working.showHealthText and "On" or "Off"))
     portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
     local roleAvailable=selectedType=="player" or selectedType=="party"
@@ -238,11 +254,20 @@ end
 local function RefreshGroupControls()
     local isRaid=selectedType=="raid"
     raidPreviewControls:SetShown(isRaid)
+    raidAxisButton:SetShown(isRaid); raidLegacyButton:SetShown(isRaid)
     local show=selectedType=="party" or selectedType=="boss" or isRaid; partyLayoutPanel:SetShown(show); if not show then return end
     partyLayoutPanel.Title:SetText(DISPLAY_NAMES[selectedType].." group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
+    partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",15,isRaid and -170 or -320)
     partySpacingSlider:SetShown(not isRaid); partySpacingSlider.ValueBox:SetShown(not isRaid)
-    partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical")); local dir=isRaid and groupWorking.growth or (groupWorking.direction or "DOWN")
-    partyDirectionButton:SetText("Grow: "..dir:sub(1,1)..dir:sub(2):lower()); if not isRaid then partySpacingSlider:SetValue(groupWorking.spacing or 32) end
+    partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical"))
+    partyDirectionButton:SetShown(not isRaid)
+    if isRaid then
+        raidAxisButton:SetText((groupWorking.orientation=="HORIZONTAL" and "Groups Down: " or "Groups Across: ")..groupWorking.groupsOnAxis)
+        raidLegacyButton:SetText("Legacy 40-player groups: "..(groupWorking.legacy40 and "On" or "Off"))
+    else
+        local dir=groupWorking.direction or "DOWN"
+        partyDirectionButton:SetText("Grow: "..dir:sub(1,1)..dir:sub(2):lower()); partySpacingSlider:SetValue(groupWorking.spacing or 32)
+    end
     partyIncludePlayerButton:SetText("Include Player: "..(groupWorking.includePlayer and "On" or "Off"))
 end
 
@@ -340,6 +365,8 @@ function ns.RefreshConfig()
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
+        widthSlider:SetLimits(selectedType=="raid" and 50 or 100,600)
+        heightSlider:SetLimits(selectedType=="raid" and 18 or 24,150)
         local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
@@ -422,6 +449,7 @@ local function CreateFramesPage()
     local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
     local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
     local indicators=MakeSection(framesPage,"Indicators",330,175); indicators:SetPoint("TOPLEFT",20,-480)
+    raidHiddenPanels={text,appearance,indicators}
     widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
@@ -431,11 +459,23 @@ local function CreateFramesPage()
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
     local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
     partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); if selectedType~="raid" then groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if selectedType=="raid" then groupWorking.growth=groupWorking.growth=="LEFT" and "RIGHT" or "LEFT" elseif groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
     partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing and selectedType~="raid" then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
+    raidAxisButton=MakeButton(partyLayoutPanel,"",155,24); raidAxisButton:SetPoint("TOPLEFT",0,-48)
+    raidAxisButton:SetScript("OnClick",function()
+        local maximum=groupWorking.legacy40 and 4 or 3
+        groupWorking.groupsOnAxis=groupWorking.groupsOnAxis==2 and maximum or 2
+        StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
+    end)
+    raidLegacyButton=MakeButton(partyLayoutPanel,"",245,24); raidLegacyButton:SetPoint("TOPLEFT",0,-78)
+    raidLegacyButton:SetScript("OnClick",function()
+        groupWorking.legacy40=not groupWorking.legacy40
+        groupWorking.groupsOnAxis=groupWorking.legacy40 and 4 or 3
+        StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
+    end)
 
-    raidPreviewControls=CreateFrame("Frame",nil,framesPage); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-663)
+    raidPreviewControls=CreateFrame("Frame",nil,framesPage); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-480)
     local showRaid=MakeButton(raidPreviewControls,"Show Raid Preview",155,24); showRaid:SetPoint("TOPLEFT"); showRaid:SetScript("OnClick",ns.ShowRaidPreview)
     local hideRaid=MakeButton(raidPreviewControls,"Hide Raid Preview",155,24); hideRaid:SetPoint("LEFT",showRaid,"RIGHT",8,0); hideRaid:SetScript("OnClick",ns.HideRaidPreview)
     local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT",0,-30)

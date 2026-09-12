@@ -286,26 +286,27 @@ watcher:SetScript("OnEvent", function(_, event)
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
 -- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
--- Fixed packing: 4 columns x 2 rows vertically, 2 columns x 4 rows horizontally.
-local RAID_SUBGROUP_GAP = 4
+-- Subgroups and members touch. Vertical packs across, horizontal packs down.
 function ns.CalculateRaidGeometry(layout, width, height)
     local memberHorizontal = layout.orientation == "HORIZONTAL"
-    local columns = memberHorizontal and 2 or 4
+    local totalGroups = layout.legacy40 == true and 8 or 6
+    local maximumAxis = totalGroups == 8 and 4 or 3
+    local groupsOnAxis = layout.groupsOnAxis
+    if groupsOnAxis ~= 2 and groupsOnAxis ~= maximumAxis then groupsOnAxis = maximumAxis end
     local groupWidth = memberHorizontal and 5 * width or width
     local groupHeight = memberHorizontal and height or 5 * height
     local positions, bounds = {}, { left = math.huge, right = -math.huge, top = -math.huge, bottom = math.huge }
-    for index = 1, 40 do
+    for index = 1, totalGroups * 5 do
         local group = math.floor((index - 1) / 5)
         local member = (index - 1) % 5
-        local column, row = group % columns, math.floor(group / columns)
-        local gx = column * (groupWidth + RAID_SUBGROUP_GAP)
-        local gy = -row * (groupHeight + RAID_SUBGROUP_GAP)
+        local major, wrapped = group % groupsOnAxis, math.floor(group / groupsOnAxis)
+        local column = memberHorizontal and wrapped or major
+        local row = memberHorizontal and major or wrapped
+        local gx = column * groupWidth
+        local gy = -row * groupHeight
         local mx = memberHorizontal and member * width or 0
         local my = memberHorizontal and 0 or -member * height
         local x, y = gx + mx, gy + my
-        -- Mirror frame rectangles around the anchor frame's center, keeping
-        -- member 1 at (0, 0) and all subgroup blocks extending leftward.
-        if layout.growth == "LEFT" then x = -x end
         positions[index] = { x = x, y = y, group = group + 1, member = member + 1 }
         bounds.left = math.min(bounds.left, x); bounds.right = math.max(bounds.right, x + width)
         bounds.top = math.max(bounds.top, y); bounds.bottom = math.min(bounds.bottom, y - height)
@@ -361,9 +362,14 @@ function ns.ShowRaidPreview()
     raidAnchor:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
     local positions = ns.CalculateRaidGeometry(layout, size.width, size.height)
     for index, ghost in ipairs(raidGhosts) do
-        ghost:SetSize(size.width, size.height); ghost:ClearAllPoints()
-        ghost:SetPoint("TOPLEFT", raidAnchor, "TOPLEFT", positions[index].x, positions[index].y)
-        ghost:Show()
+        local position = positions[index]
+        if position then
+            ghost:SetSize(size.width, size.height); ghost:ClearAllPoints()
+            ghost:SetPoint("TOPLEFT", raidAnchor, "TOPLEFT", position.x, position.y)
+            ghost:Show()
+        else
+            ghost:Hide()
+        end
     end
     raidAnchor:Show()
 end
