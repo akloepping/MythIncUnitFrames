@@ -285,3 +285,94 @@ watcher:SetScript("OnEvent", function(_, event)
     ns.ApplyPartyLayout()
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
+-- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
+-- The secondary wrap axis grows down for horizontal groups, right for vertical groups.
+function ns.CalculateRaidGeometry(layout, width, height)
+    local memberHorizontal = layout.memberOrientation == "HORIZONTAL"
+    local groupHorizontal = layout.subgroupOrientation == "HORIZONTAL"
+    local memberSpacing = math.max(0, tonumber(layout.memberSpacing) or 0)
+    local groupSpacing = math.max(0, tonumber(layout.subgroupSpacing) or 0)
+    local perRow = math.max(1, math.min(8, math.floor(tonumber(layout.groupsPerRow) or 4)))
+    local memberSign = (layout.memberDirection == "LEFT" or layout.memberDirection == "UP") and -1 or 1
+    local groupSign = (layout.subgroupDirection == "LEFT" or layout.subgroupDirection == "UP") and -1 or 1
+    local groupWidth = memberHorizontal and (5 * width + 4 * memberSpacing) or width
+    local groupHeight = memberHorizontal and height or (5 * height + 4 * memberSpacing)
+    local positions, bounds = {}, { left = math.huge, right = -math.huge, top = -math.huge, bottom = math.huge }
+    for index = 1, 40 do
+        local group = math.floor((index - 1) / 5)
+        local member = (index - 1) % 5
+        local major, minor = group % perRow, math.floor(group / perRow)
+        local gx = (groupHorizontal and major * groupSign or minor) * (groupWidth + groupSpacing)
+        local gy = -(groupHorizontal and minor or major * groupSign) * (groupHeight + groupSpacing)
+        local mx = memberHorizontal and member * memberSign * (width + memberSpacing) or 0
+        local my = memberHorizontal and 0 or -member * memberSign * (height + memberSpacing)
+        local x, y = gx + mx, gy + my
+        positions[index] = { x = x, y = y, group = group + 1, member = member + 1 }
+        bounds.left = math.min(bounds.left, x); bounds.right = math.max(bounds.right, x + width)
+        bounds.top = math.max(bounds.top, y); bounds.bottom = math.min(bounds.bottom, y - height)
+    end
+    bounds.width = bounds.right - bounds.left; bounds.height = bounds.top - bounds.bottom
+    return positions, bounds
+end
+
+local raidAnchor, raidGhosts = nil, {}
+
+
+function ns.HideRaidPreview()
+    if raidAnchor then raidAnchor:Hide() end
+end
+
+function ns.ShowRaidPreview()
+    if InCombatLockdown() then return end
+    local size = ns.GetSize("party")
+    local layout = ns.ConfigSessionGetGroup("raid")
+    local position = ns.ConfigSessionGetPosition("raid")
+    if not raidAnchor then
+        raidAnchor = CreateFrame("Frame", nil, UIParent)
+        raidAnchor:SetSize(size.width, size.height)
+        raidAnchor:SetFrameStrata("DIALOG")
+        raidAnchor:SetMovable(true)
+        -- One non-secure mover owns the eventual group anchor, never a unit frame.
+        local mover = CreateFrame("Button", nil, raidAnchor, "BackdropTemplate")
+        mover:SetAllPoints(raidAnchor); mover:SetFrameLevel(45)
+        mover:SetBackdrop({ bgFile = PREVIEW_BG, edgeFile = PREVIEW_BG, edgeSize = 1 })
+        mover:SetBackdropColor(0.05, 0.35, 0.8, 0.2)
+        mover:SetBackdropBorderColor(0.2, 0.65, 1, 1)
+        mover:RegisterForDrag("LeftButton")
+        mover:SetScript("OnDragStart", function() if not InCombatLockdown() then raidAnchor:StartMoving() end end)
+        mover:SetScript("OnDragStop", function()
+            raidAnchor:StopMovingOrSizing()
+            if InCombatLockdown() then return end
+            local point, _, relativePoint, x, y = raidAnchor:GetPoint(1)
+            ns.ConfigSessionStagePosition("raid", { point = point, relativePoint = relativePoint, x = x, y = y })
+            if ns.RefreshConfig then ns.RefreshConfig() end
+        end)
+        raidAnchor.MIUF_Mover = mover
+        ns.raidFrameMoverOwner = raidAnchor
+        for index = 1, 40 do
+            local ghost = CreatePreviewFrame("raid", index)
+            ghost:SetParent(raidAnchor)
+            ghost.Label:SetText("Raid " .. index .. " (G" .. math.ceil(index / 5) .. ")")
+            raidGhosts[index] = ghost
+        end
+    end
+    raidAnchor:SetSize(size.width, size.height)
+    raidAnchor:ClearAllPoints()
+    raidAnchor:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
+    local positions = ns.CalculateRaidGeometry(layout, size.width, size.height)
+    for index, ghost in ipairs(raidGhosts) do
+        ghost:SetSize(size.width, size.height); ghost:ClearAllPoints()
+        ghost:SetPoint("TOPLEFT", raidAnchor, "TOPLEFT", positions[index].x, positions[index].y)
+        ghost:Show()
+    end
+    raidAnchor:Show()
+end
+
+local setMoversLocked = ns.SetFrameMoversLocked
+ns.SetFrameMoversLocked = function(locked)
+    setMoversLocked(locked)
+    if locked then ns.HideRaidPreview() end
+end
+local raidWatcher = CreateFrame("Frame")
+raidWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+raidWatcher:SetScript("OnEvent", function() ns.HideRaidPreview() end)

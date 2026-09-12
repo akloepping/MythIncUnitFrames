@@ -2,13 +2,14 @@ local ADDON_NAME, ns = ...
 
 local pendingEnabled, pendingAuraLayouts = {}, {}
 local pendingFrameSettings, pendingGroupLayouts = {}, {}
+local pendingPositions = {}
 local pendingTrackedBuffs
 local hasPendingChanges = false
 local sessionProfile
 
 function ns.ConfigSessionClear()
     pendingEnabled={}; pendingAuraLayouts={}; pendingFrameSettings={}; pendingGroupLayouts={}
-    pendingTrackedBuffs=nil; hasPendingChanges=false; sessionProfile=nil
+    pendingPositions={}; pendingTrackedBuffs=nil; hasPendingChanges=false; sessionProfile=nil
 end
 
 local function EnsureProfile()
@@ -61,7 +62,10 @@ function ns.ConfigSessionIsDirty()
     end
     if pendingTrackedBuffs and MatchesSaved(pendingTrackedBuffs,ns.GetTrackedBuffs())
         and MatchesSaved(ns.GetTrackedBuffs(),pendingTrackedBuffs) then pendingTrackedBuffs=nil end
-    hasPendingChanges=next(pendingFrameSettings)~=nil or next(pendingGroupLayouts)~=nil
+    for key,value in pairs(pendingPositions) do
+        if MatchesSaved(value,ns.GetPosition(key)) then pendingPositions[key]=nil end
+    end
+    hasPendingChanges=next(pendingPositions)~=nil or next(pendingFrameSettings)~=nil or next(pendingGroupLayouts)~=nil
         or next(pendingEnabled)~=nil or next(pendingAuraLayouts)~=nil or pendingTrackedBuffs~=nil
     return hasPendingChanges
 end
@@ -157,6 +161,8 @@ function ns.ConfigSessionStageResetAll()
         pendingEnabled[unitType]=ns.defaultEnabled[unitType]
         pendingAuraLayouts[unitType]=CopyValues(ns.defaultAuraLayout[unitType])
     end
+    pendingGroupLayouts.raid=CopyValues(ns.defaultGroupLayout.raid)
+    pendingPositions.raid=CopyValues(ns.defaultPositions.raid)
     pendingTrackedBuffs={}
 end
 
@@ -168,6 +174,7 @@ function ns.ConfigSessionCommit()
         ns.SavePowerPercent(unitType,values.powerPercent)
         ns.SaveAppearance(unitType,values.appearance)
     end
+    for key,value in pairs(pendingPositions) do ns.SavePosition(key,value.point,value.relativePoint,value.x,value.y) end
     for unitType,values in pairs(pendingGroupLayouts) do ns.SaveGroupLayout(unitType,values) end
     for unitType,enabled in pairs(pendingEnabled) do ns.SetFrameTypeEnabled(unitType,enabled) end
     for unitType,auraTypes in pairs(pendingAuraLayouts) do for auraType,values in pairs(auraTypes) do ns.SaveAuraLayout(unitType,auraType,values) end end
@@ -175,4 +182,14 @@ function ns.ConfigSessionCommit()
     ns.ConfigSessionClear()
 
     return true
+end
+
+function ns.ConfigSessionGetPosition(key)
+    EnsureProfile()
+    return CopyValues(pendingPositions[key] or ns.GetPosition(key))
+end
+
+function ns.ConfigSessionStagePosition(key, value)
+    EnsureProfile()
+    pendingPositions[key] = CopyValues(value)
 end

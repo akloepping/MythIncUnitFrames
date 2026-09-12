@@ -21,6 +21,8 @@ for i = 1, 5 do
     defaultPositions["boss" .. i] = { point = "RIGHT", relativePoint = "RIGHT", x = -45, y = 140 - ((i - 1) * 78) }
 end
 
+defaultPositions.raid = { point = "TOPLEFT", relativePoint = "TOPLEFT", x = 35, y = -220 }
+
 local defaultSizes = {
     player = { width = 250, height = 54 }, target = { width = 250, height = 54 },
     focus = { width = 220, height = 48 }, pet = { width = 180, height = 38 },
@@ -34,6 +36,8 @@ local defaultEnabled = {
 }
 
 local defaultGroupLayout = {
+    raid = { memberOrientation = "VERTICAL", memberDirection = "DOWN", memberSpacing = 4,
+        subgroupOrientation = "HORIZONTAL", subgroupDirection = "RIGHT", subgroupSpacing = 16, groupsPerRow = 4 },
     party = { orientation = "VERTICAL", direction = "DOWN", spacing = 32, includePlayer = false },
     boss = { orientation = "VERTICAL", direction = "DOWN", spacing = 32 },
 }

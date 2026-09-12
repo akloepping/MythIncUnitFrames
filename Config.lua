@@ -34,6 +34,7 @@ local profileButtons = {}
 local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
+local raidPage, refreshRaidControls
 local MarkPending
 local previewFrameType
 local previewAuraUnitType, previewAuraType
@@ -329,6 +330,7 @@ function ns.RefreshConfig()
     end
     if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end
     auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
+    raidPage:SetShown(selectedPage=="raid"); if selectedPage=="raid" then selectedLabel:SetText("Raid Layout Preview"); refreshRaidControls() end
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
@@ -341,7 +343,7 @@ function ns.RefreshConfig()
         for auraType,button in pairs(auraButtons) do button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
         RefreshAuraControls(); RefreshTrackedWindow(); auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
     else
-        RefreshProfilesControls()
+        if selectedPage=="profiles" then RefreshProfilesControls() end
     end
     statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
@@ -364,6 +366,7 @@ local function SelectPage(page)
     if fontMenu then fontMenu:Hide() end
     if textureMenu then textureMenu:Hide() end
     if page=="frames" then RestoreAuraPreview() elseif page=="auras" then RestoreFramePreview(); ChooseAvailableAura() else RestoreFramePreview(); RestoreAuraPreview() end
+    if ns.HideRaidPreview then ns.HideRaidPreview() end
     selectedPage=page
     ns.RefreshConfig()
 end
@@ -378,7 +381,7 @@ local function CreateShell()
     config:SetScript("OnEvent",FitConfigToScreen)
     FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
+    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview(); ns.HideRaidPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
@@ -396,7 +399,7 @@ local function CreateShell()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
-            selectedType=unitType; if selectedPage=="profiles" then selectedPage="frames" end; ns.RefreshConfig()
+            ns.HideRaidPreview(); selectedType=unitType; if selectedPage=="profiles" or selectedPage=="raid" then selectedPage="frames" end; ns.RefreshConfig()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
@@ -509,6 +512,59 @@ local function CreateAurasPage()
     auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
 end
 
+local function CreateRaidPage()
+    raidPage=CreateFrame("Frame",nil,config); raidPage:SetPoint("TOPLEFT",160,-80); raidPage:SetPoint("BOTTOMRIGHT",-10,50)
+    local tab=MakeButton(config,"Raid Layout",110,28); tab:SetPoint("LEFT",profileTab,"RIGHT",8,0)
+    tab:SetScript("OnClick",function() SelectPage("raid") end)
+    local controls, raidWorking = {}, {}
+    local function Stage()
+        if refreshing or InCombatLockdown() then return end
+        ns.ConfigSessionStageGroup("raid",raidWorking); MarkPending("Raid geometry changes are pending.")
+        refreshRaidControls()
+        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+    end
+    -- Both geometry levels use the same control builder and orientation rules.
+    local function BuildLevel(title,prefix,y)
+        local panel=MakeSection(raidPage,title,650,150); panel:SetPoint("TOPLEFT",20,y)
+        local orientation=MakeButton(panel,"",180,26); orientation:SetPoint("TOPLEFT",15,-35)
+        local direction=MakeButton(panel,"",140,26); direction:SetPoint("LEFT",orientation,"RIGHT",10,0)
+        local spacing=MakeSlider(panel,"Raid"..prefix.."Spacing","Spacing",0,80,1,180); spacing:SetPoint("TOPLEFT",15,-85)
+        orientation:SetScript("OnClick",function()
+            raidWorking[prefix.."Orientation"]=Cycle(raidWorking[prefix.."Orientation"],GROUP_ORIENTATION_ORDER)
+            raidWorking[prefix.."Direction"]=raidWorking[prefix.."Orientation"]=="HORIZONTAL" and "RIGHT" or "DOWN"; Stage()
+        end)
+        direction:SetScript("OnClick",function()
+            local horizontal=raidWorking[prefix.."Orientation"]=="HORIZONTAL"
+            local forward,reverse=horizontal and "RIGHT" or "DOWN",horizontal and "LEFT" or "UP"
+            raidWorking[prefix.."Direction"]=raidWorking[prefix.."Direction"]==forward and reverse or forward; Stage()
+        end)
+        spacing:HookScript("OnValueChanged",function(_,v) if not refreshing then raidWorking[prefix.."Spacing"]=Round(v); Stage() end end)
+        controls[prefix]={orientation=orientation,direction=direction,spacing=spacing}
+    end
+    BuildLevel("Raid members (5 per subgroup)","member",-62)
+    BuildLevel("Raid subgroups (8 groups)","subgroup",-222)
+    local rows=MakeSlider(raidPage,"RaidGroupsPerRow","Groups per row",1,8,1,180); rows:SetPoint("TOPLEFT",35,-412)
+    rows:HookScript("OnValueChanged",function(_,v) if not refreshing then raidWorking.groupsPerRow=Round(v); Stage() end end)
+    local show=MakeButton(raidPage,"Show Raid Preview",155,28); show:SetPoint("TOPLEFT",35,-480)
+    show:SetScript("OnClick",function() ns.ShowRaidPreview() end)
+    local hide=MakeButton(raidPage,"Hide Preview",120,28); hide:SetPoint("LEFT",show,"RIGHT",8,0); hide:SetScript("OnClick",ns.HideRaidPreview)
+    local revert=MakeButton(raidPage,"Revert Raid Changes",155,28); revert:SetPoint("LEFT",hide,"RIGHT",8,0)
+    revert:SetScript("OnClick",function()
+        if InCombatLockdown() then return end
+        ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid")); ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
+        refreshRaidControls(); MarkPending()
+        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+    end)
+    refreshRaidControls=function()
+        local previous=refreshing; refreshing=true; raidWorking=ns.ConfigSessionGetGroup("raid")
+        for prefix,c in pairs(controls) do
+            c.orientation:SetText("Layout: "..GROUP_ORIENTATION_NAMES[raidWorking[prefix.."Orientation"]])
+            c.direction:SetText("Grow: "..raidWorking[prefix.."Direction"])
+            c.spacing:SetValue(raidWorking[prefix.."Spacing"])
+        end
+        rows:SetValue(raidWorking.groupsPerRow); refreshing=previous
+    end
+end
 local function CreateProfilesPage()
     profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",160,-80); profilesPage:SetPoint("BOTTOMRIGHT",-10,50)
     local section=MakeSection(profilesPage,"Profile Management",690,430); section:SetPoint("TOPLEFT",20,-62)
@@ -579,7 +635,7 @@ local function CreateProfilesPage()
 end
 
 local function CreateConfig()
-    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
+    if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage(); CreateRaidPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
     config:HookScript("OnShow",function() applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
 end
