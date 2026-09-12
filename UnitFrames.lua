@@ -240,6 +240,19 @@ local function ApplyFrameState(frame,state)
     ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateConnectionState(frame)
 end
 
+function ns.CreateMoverResizeHandle(mover)
+    local resize=CreateFrame("Button",nil,mover,"BackdropTemplate"); resize:SetSize(14,14); resize:SetPoint("BOTTOMRIGHT"); resize:SetFrameLevel(mover:GetFrameLevel()+10)
+    resize:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); resize:SetBackdropColor(0.12,0.12,0.12,0.95); resize:SetBackdropBorderColor(0.8,0.8,0.8,1); resize:EnableMouse(true)
+    local grip=resize:CreateFontString(nil,"OVERLAY"); grip:SetFont(FONT,10,"OUTLINE"); grip:SetPoint("CENTER",0,1); grip:SetText("↘")
+    mover.MIUF_ResizeHandle=resize
+    return resize
+end
+
+function ns.GetMoverResizeDimensions(state)
+    local scale=UIParent:GetEffectiveScale(); local cx,cy=GetCursorPosition(); cx,cy=cx/scale,cy/scale
+    return math.max(state.minW,math.min(state.maxW,cx-state.left)),math.max(state.minH,math.min(state.maxH,state.top-cy))
+end
+
 local function CreateMover(frame,labelText,positionKey)
     frame:SetMovable(true); frame:SetClampedToScreen(true)
     local mover=CreateFrame("Frame",nil,UIParent,"BackdropTemplate"); mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(frame)
@@ -263,17 +276,14 @@ local function CreateMover(frame,labelText,positionKey)
         if dragTarget==mover then mover:ClearAllPoints(); mover:SetAllPoints(frame) end
         dragTarget=frame
     end)
-    local resize=CreateFrame("Button",nil,mover,"BackdropTemplate"); resize:SetSize(14,14); resize:SetPoint("BOTTOMRIGHT"); resize:SetFrameLevel(mover:GetFrameLevel()+10)
-    resize:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); resize:SetBackdropColor(0.12,0.12,0.12,0.95); resize:SetBackdropBorderColor(0.8,0.8,0.8,1); resize:EnableMouse(true)
-    local grip=resize:CreateFontString(nil,"OVERLAY"); grip:SetFont(FONT,10,"OUTLINE"); grip:SetPoint("CENTER",0,1); grip:SetText("↘")
+    local resize=ns.CreateMoverResizeHandle(mover)
     resize:SetScript("OnMouseDown",function(_,button)
         if button~="LeftButton" or InCombatLockdown() then return end
         local left,top=frame:GetLeft(),frame:GetTop(); if not left or not top then return end
         resize.MIUF_ResizeState={unitType=frame.MIUF_UnitType,left=left,top=top,minW=100,maxW=600,minH=24,maxH=150}; frame:ClearAllPoints(); frame:SetPoint("TOPLEFT",UIParent,"BOTTOMLEFT",left,top)
         resize:SetScript("OnUpdate",function(handle)
             local s=handle.MIUF_ResizeState; if not s or InCombatLockdown() then return end
-            local scale=UIParent:GetEffectiveScale(); local cx,cy=GetCursorPosition(); cx,cy=cx/scale,cy/scale
-            ns.PreviewFrameSize(s.unitType,math.max(s.minW,math.min(s.maxW,cx-s.left)),math.max(s.minH,math.min(s.maxH,s.top-cy)))
+            ns.PreviewFrameSize(s.unitType,ns.GetMoverResizeDimensions(s))
         end)
     end)
     resize:SetScript("OnMouseUp",function(handle,button)

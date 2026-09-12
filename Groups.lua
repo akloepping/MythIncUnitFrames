@@ -337,13 +337,14 @@ end
 
 function ns.ApplyRaidLayout()
     if InCombatLockdown() or not raidAnchor then return end
-    local size = ns.GetSize("raid")
+    local size = ns.ConfigSessionGetFrame("raid").size
     raidAnchor:SetSize(size.width,size.height)
     PositionRaidAnchor()
-    local positions = ns.CalculateRaidGeometry(ns.GetGroupLayout("raid"),size.width,size.height)
+    local positions = ns.CalculateRaidGeometry(ns.ConfigSessionGetGroup("raid"),size.width,size.height)
     for index, offset in ipairs(positions) do
         local frame = ns.frames and ns.frames["raid"..index]
         if frame then
+            frame:SetSize(size.width,size.height)
             frame:ClearAllPoints()
             frame:SetPoint("TOPLEFT",raidAnchor,"TOPLEFT",offset.x,offset.y)
         end
@@ -381,6 +382,28 @@ function ns.UpdateRaidPreview(locked)
             if ns.RefreshConfig then ns.RefreshConfig() end
         end)
         raidAnchor.MIUF_Mover = mover
+        local resize=ns.CreateMoverResizeHandle(mover)
+        resize:SetScript("OnMouseDown",function(handle,button)
+            if button~="LeftButton" or InCombatLockdown() or ns.AreFrameMoversLocked() then return end
+            local left,top=raidAnchor:GetLeft(),raidAnchor:GetTop()
+            if not left or not top then return end
+            handle.MIUF_ResizeState={left=left,top=top,minW=50,maxW=600,minH=18,maxH=150}
+            handle:SetScript("OnUpdate",function(self)
+                local state=self.MIUF_ResizeState
+                if not state or InCombatLockdown() or ns.AreFrameMoversLocked() then return end
+                local width,height=ns.GetMoverResizeDimensions(state)
+                local settings=ns.ConfigSessionGetFrame("raid")
+                settings.size={width=math.floor(width+0.5),height=math.floor(height+0.5)}
+                ns.ConfigSessionStageFrame("raid",settings)
+                ns.UpdateRaidPreview()
+                if ns.RefreshConfig then ns.RefreshConfig() end
+            end)
+        end)
+        local function StopResize(handle)
+            handle:SetScript("OnUpdate",nil); handle.MIUF_ResizeState=nil
+        end
+        resize:SetScript("OnMouseUp",function(handle,button) if button=="LeftButton" then StopResize(handle) end end)
+        resize:SetScript("OnHide",StopResize)
         ns.raidFrameMoverOwner = raidAnchor
         for index = 1, 40 do
             local ghost = CreatePreviewFrame("raid", index)
