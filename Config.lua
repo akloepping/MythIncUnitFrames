@@ -110,7 +110,7 @@ local function PreviewFrameSliders()
         settings.size={width=width,height=height}
         ns.ConfigSessionStageFrame("raid",settings)
         MarkPending("Configuration changes are pending.")
-        if ns.IsRaidPreviewShown() then ns.ShowRaidPreview() end
+        ns.UpdateRaidPreview()
         return
     end
     local powerPercent=Round(powerSlider:GetValue())
@@ -380,6 +380,7 @@ function ns.RefreshConfig()
     statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
+    ns.UpdateRaidPreview()
     if not InCombatLockdown() and selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
@@ -398,7 +399,6 @@ local function SelectPage(page)
     if fontMenu then fontMenu:Hide() end
     if textureMenu then textureMenu:Hide() end
     if page=="frames" then RestoreAuraPreview() elseif page=="auras" then RestoreFramePreview(); ChooseAvailableAura() else RestoreFramePreview(); RestoreAuraPreview() end
-    if ns.HideRaidPreview then ns.HideRaidPreview() end
     selectedPage=page
     ns.RefreshConfig()
 end
@@ -413,7 +413,7 @@ local function CreateShell()
     config:SetScript("OnEvent",FitConfigToScreen)
     FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview(); ns.HideRaidPreview() end)
+    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
@@ -426,13 +426,12 @@ local function CreateShell()
         local check=CreateFrame("CheckButton",nil,row,"UICheckButtonTemplate"); check:SetSize(24,24); check:SetPoint("LEFT"); check:SetScript("OnClick",function(self)
             if InCombatLockdown() then self:SetChecked(ns.ConfigSessionGetEnabled(unitType)); return end
             ns.ConfigSessionStageEnabled(unitType,self:GetChecked() and true or false); MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
-            if unitType=="raid" and not self:GetChecked() then ns.HideRaidPreview() end
         end); frameEnableChecks[unitType]=check
         local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
             if previewAuraUnitType then RestoreAuraPreview() end
-            ns.HideRaidPreview(); selectedType=unitType; if selectedPage=="profiles" or unitType=="raid" then selectedPage="frames" end; ns.RefreshConfig()
+            selectedType=unitType; if selectedPage=="profiles" or unitType=="raid" then selectedPage="frames" end; ns.RefreshConfig()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
@@ -468,9 +467,7 @@ local function CreateFramesPage()
     end)
 
     raidPreviewControls=CreateFrame("Frame",nil,framesPage); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-480)
-    local showRaid=MakeButton(raidPreviewControls,"Show Raid Preview",155,24); showRaid:SetPoint("TOPLEFT"); showRaid:SetScript("OnClick",ns.ShowRaidPreview)
-    local hideRaid=MakeButton(raidPreviewControls,"Hide Raid Preview",155,24); hideRaid:SetPoint("LEFT",showRaid,"RIGHT",8,0); hideRaid:SetScript("OnClick",ns.HideRaidPreview)
-    local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT",0,-30)
+    local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT")
     revertRaid:SetScript("OnClick",function()
         if InCombatLockdown() then return end
         ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
@@ -478,7 +475,7 @@ local function CreateFramesPage()
         ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
         ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
         ns.RefreshConfig()
-        if ns.IsRaidPreviewShown() then ns.ShowRaidPreview() end
+        ns.UpdateRaidPreview()
     end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)

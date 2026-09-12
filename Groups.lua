@@ -343,19 +343,14 @@ function ns.ApplyRaidLayout()
     end
 end
 
-function ns.IsRaidPreviewShown()
-    return raidPreview and raidPreview:IsShown() or false
-end
-
-function ns.HideRaidPreview()
-    if raidPreview then raidPreview:Hide() end
-    -- The shared anchor must never be hidden: secure watches own live visibility.
-    if not InCombatLockdown() then ns.ApplyRaidLayout() end
-end
-
-function ns.ShowRaidPreview()
-    if InCombatLockdown() then return end
-    if not ns.ConfigSessionGetEnabled("raid") then ns.HideRaidPreview(); return end
+function ns.UpdateRaidPreview(locked)
+    if locked == nil then locked = ns.AreFrameMoversLocked() end
+    if locked or InCombatLockdown() or not ns.ConfigSessionGetEnabled("raid") then
+        if raidPreview then raidPreview:Hide() end
+        -- Hide only non-secure configuration visuals, never the shared anchor.
+        if not InCombatLockdown() then ns.ApplyRaidLayout() end
+        return
+    end
     local size = ns.ConfigSessionGetFrame("raid").size
     local layout = ns.ConfigSessionGetGroup("raid")
     local position = ns.ConfigSessionGetPosition("raid")
@@ -408,10 +403,5 @@ end
 local setMoversLocked = ns.SetFrameMoversLocked
 ns.SetFrameMoversLocked = function(locked)
     setMoversLocked(locked)
-    if locked then ns.HideRaidPreview() end
-    if not locked and not InCombatLockdown() and ns.IsFrameTypeEnabled("raid") then ns.ShowRaidPreview() end
+    ns.UpdateRaidPreview(locked)
 end
-local raidWatcher = CreateFrame("Frame")
-raidWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
-raidWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-raidWatcher:SetScript("OnEvent", function() ns.HideRaidPreview() end)
