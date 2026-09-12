@@ -35,7 +35,7 @@ local selectedProfileName
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local raidPreviewControls
-local raidAxisButton, raidLegacyButton
+local raidLegacyButton
 local raidHiddenPanels = {}
 local MarkPending
 local previewFrameType
@@ -254,7 +254,7 @@ end
 local function RefreshGroupControls()
     local isRaid=selectedType=="raid"
     raidPreviewControls:SetShown(isRaid)
-    raidAxisButton:SetShown(isRaid); raidLegacyButton:SetShown(isRaid)
+    raidLegacyButton:SetShown(isRaid)
     local show=selectedType=="party" or selectedType=="boss" or isRaid; partyLayoutPanel:SetShown(show); if not show then return end
     partyLayoutPanel.Title:SetText(DISPLAY_NAMES[selectedType].." group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
     partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",15,isRaid and -170 or -320)
@@ -262,7 +262,6 @@ local function RefreshGroupControls()
     partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical"))
     partyDirectionButton:SetShown(not isRaid)
     if isRaid then
-        raidAxisButton:SetText((groupWorking.orientation=="HORIZONTAL" and "Groups Down: " or "Groups Across: ")..groupWorking.groupsOnAxis)
         raidLegacyButton:SetText("Legacy 40-player groups: "..(groupWorking.legacy40 and "On" or "Off"))
     else
         local dir=groupWorking.direction or "DOWN"
@@ -462,16 +461,9 @@ local function CreateFramesPage()
     partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
     partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
     partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing and selectedType~="raid" then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
-    raidAxisButton=MakeButton(partyLayoutPanel,"",155,24); raidAxisButton:SetPoint("TOPLEFT",0,-48)
-    raidAxisButton:SetScript("OnClick",function()
-        local maximum=groupWorking.legacy40 and 4 or 3
-        groupWorking.groupsOnAxis=groupWorking.groupsOnAxis==2 and maximum or 2
-        StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
-    end)
-    raidLegacyButton=MakeButton(partyLayoutPanel,"",245,24); raidLegacyButton:SetPoint("TOPLEFT",0,-78)
+    raidLegacyButton=MakeButton(partyLayoutPanel,"",245,24); raidLegacyButton:SetPoint("TOPLEFT",0,-48)
     raidLegacyButton:SetScript("OnClick",function()
         groupWorking.legacy40=not groupWorking.legacy40
-        groupWorking.groupsOnAxis=groupWorking.legacy40 and 4 or 3
         StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
     end)
 

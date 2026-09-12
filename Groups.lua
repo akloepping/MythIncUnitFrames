@@ -286,22 +286,18 @@ watcher:SetScript("OnEvent", function(_, event)
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
 -- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
--- Subgroups and members touch. Vertical packs across, horizontal packs down.
+-- Subgroups and members touch. Vertical subgroup tops align; horizontal lefts align.
 function ns.CalculateRaidGeometry(layout, width, height)
     local memberHorizontal = layout.orientation == "HORIZONTAL"
     local totalGroups = layout.legacy40 == true and 8 or 6
-    local maximumAxis = totalGroups == 8 and 4 or 3
-    local groupsOnAxis = layout.groupsOnAxis
-    if groupsOnAxis ~= 2 and groupsOnAxis ~= maximumAxis then groupsOnAxis = maximumAxis end
     local groupWidth = memberHorizontal and 5 * width or width
     local groupHeight = memberHorizontal and height or 5 * height
     local positions, bounds = {}, { left = math.huge, right = -math.huge, top = -math.huge, bottom = math.huge }
     for index = 1, totalGroups * 5 do
         local group = math.floor((index - 1) / 5)
         local member = (index - 1) % 5
-        local major, wrapped = group % groupsOnAxis, math.floor(group / groupsOnAxis)
-        local column = memberHorizontal and wrapped or major
-        local row = memberHorizontal and major or wrapped
+        local column = memberHorizontal and 0 or group
+        local row = memberHorizontal and group or 0
         local gx = column * groupWidth
         local gy = -row * groupHeight
         local mx = memberHorizontal and member * width or 0

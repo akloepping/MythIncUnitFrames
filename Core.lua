@@ -36,7 +36,7 @@ local defaultEnabled = {
 }
 
 local defaultGroupLayout = {
-    raid = { orientation = "VERTICAL", groupsOnAxis = 3, legacy40 = false },
+    raid = { orientation = "VERTICAL", legacy40 = false },
     party = { orientation = "VERTICAL", direction = "DOWN", spacing = 32, includePlayer = false },
     boss = { orientation = "VERTICAL", direction = "DOWN", spacing = 32 },
 }
@@ -125,13 +125,9 @@ local function NormalizeProfile(profile)
     raid = type(raid) == "table" and raid or {}
     local orientation = raid.orientation or raid.memberOrientation
     local legacy40 = raid.legacy40 == true
-    local groupsOnAxis = raid.groupsOnAxis
-    local maximumAxis = legacy40 and 4 or 3
-    if groupsOnAxis ~= 2 and groupsOnAxis ~= maximumAxis then groupsOnAxis = maximumAxis end
     profile.groupLayout = FillMissing(profile.groupLayout, defaultGroupLayout)
     profile.groupLayout.raid = {
         orientation = orientation == "HORIZONTAL" and "HORIZONTAL" or "VERTICAL",
-        groupsOnAxis = groupsOnAxis,
         legacy40 = legacy40,
     }
     if type(profile.trackedBuffs) ~= "table" then profile.trackedBuffs = {} end
