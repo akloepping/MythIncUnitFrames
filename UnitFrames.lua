@@ -179,13 +179,14 @@ local function UpdateRaidTarget(frame, appearance)
     local unit=ns.GetFrameDisplayUnit(frame)
     if appearance.showRaidMarker==false or not unit or not UnitExists(unit) then holder:Hide(); return end
     local index=GetRaidTargetIndex(unit)
+    if frame.MIUF_UnitType=="raid" and not canaccessvalue(index) then holder:Hide(); return end
     if index then icon:SetTexture(RAID_TARGET_TEXTURE); SetRaidTargetIconTexture(icon,index); holder:Show() else holder:Hide() end
 end
 
 local function UpdateRoleIndicator(frame, appearance)
     local icon=frame.GroupRoleIndicator; if not icon then return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
-    if not appearance.showRoleIcon then icon:Hide(); return end
+    if not appearance.showRoleIcon and frame.MIUF_UnitType~="raid" then icon:Hide(); return end
     local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local atlas
     if not canaccessvalue(role) then icon:Hide(); return end
     if role=="TANK" then atlas="groupfinder-icon-role-large-tank" elseif role=="HEALER" then atlas="groupfinder-icon-role-large-heal" elseif role=="DAMAGER" then atlas="groupfinder-icon-role-large-dps" end
@@ -203,29 +204,35 @@ end
 local function UpdateFrame(frame)
     UpdateHealth(frame); UpdatePower(frame); UpdateName(frame); UpdatePortrait(frame)
     local appearance=ns.GetAppearance(frame.MIUF_UnitType) or {}
-    ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame)
+    ApplyColors(frame,appearance)
+    -- Raid roster callbacks only update display sinks. Indicator anchors are
+    -- established by ApplyFrameState outside combat, never by roster updates.
+    if frame.MIUF_UnitType~="raid" then ApplyIndicatorLayout(frame,appearance) end
+    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame)
 end
 
 local function ApplyFrameState(frame,state)
     local appearance=state.appearance; local width,height=state.size.width,state.size.height; frame:SetSize(width,height)
     local texture=ns.GetTexturePath(appearance.texture); frame.Health:SetStatusBarTexture(texture); frame.Power:SetStatusBarTexture(texture)
     frame.Background:SetColorTexture(0.03,0.03,0.03,appearance.backgroundOpacity/100); frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,appearance.borderOpacity/100)
-    local portraitWidth=appearance.showPortrait and math.max(18,math.floor(width*(appearance.portraitPercent/100))) or 0
-    frame.Portrait:ClearAllPoints()
-    if appearance.showPortrait then
+    local showPortrait=frame.Portrait and appearance.showPortrait
+    local portraitWidth=showPortrait and math.max(18,math.floor(width*(appearance.portraitPercent/100))) or 0
+    if frame.Portrait then frame.Portrait:ClearAllPoints() end
+    if showPortrait then
         frame.Portrait:SetWidth(portraitWidth); frame.Portrait:SetPoint("TOP",frame,"TOP",0,-2); frame.Portrait:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
         if appearance.portraitSide=="RIGHT" then frame.Portrait:SetPoint("RIGHT",frame,"RIGHT",-2,0) else frame.Portrait:SetPoint("LEFT",frame,"LEFT",2,0) end
         frame.Portrait:Show()
-    else frame.Portrait:Hide() end
+    elseif frame.Portrait then frame.Portrait:Hide() end
     local leftInset,rightInset=2,2
-    if appearance.showPortrait then if appearance.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
+    if showPortrait then if appearance.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
     local powerHeight=math.max(8,math.floor(height*(state.powerPercent/100)))
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
     local nameX,nameY=appearance.nameXOffset or 6,appearance.nameYOffset or 0
-    frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-48,nameY)
+    local healthTextWidth=frame.MIUF_UnitType=="raid" and math.min(42,math.floor(width*0.35)) or 42
+    frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-healthTextWidth-6,nameY)
     local healthX,healthY=appearance.healthXOffset or -6,appearance.healthYOffset or 0
-    frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(42)
+    frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(healthTextWidth)
     local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateConnectionState(frame)
@@ -289,10 +296,10 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     local nameText=health:CreateFontString(nil,"OVERLAY"); nameText:SetFont(FONT,12,"OUTLINE"); nameText:SetJustifyH("LEFT"); nameText:SetWordWrap(false); frame.NameText=nameText
     local healthText=health:CreateFontString(nil,"OVERLAY"); healthText:SetFont(FONT,11,"OUTLINE"); healthText:SetJustifyH("RIGHT"); frame.HealthText=healthText
     local offlineText=health:CreateFontString(nil,"OVERLAY"); offlineText:SetFont(FONT,10,"OUTLINE"); offlineText:SetPoint("CENTER"); offlineText:SetText("OFFLINE"); offlineText:Hide(); frame.OfflineText=offlineText
-    local portrait=frame:CreateTexture(nil,"ARTWORK"); portrait:SetTexCoord(0.08,0.92,0.08,0.92); frame.Portrait=portrait
+    if unitType~="raid" then local portrait=frame:CreateTexture(nil,"ARTWORK"); portrait:SetTexCoord(0.08,0.92,0.08,0.92); frame.Portrait=portrait end
     local markerFrame=CreateFrame("Frame",nil,frame); markerFrame:SetFrameLevel(frame.Border:GetFrameLevel()+5); markerFrame:SetSize(20,20); markerFrame:SetPoint("CENTER",frame,"TOP",0,2); markerFrame:Hide(); frame.RaidTargetIndicatorFrame=markerFrame
     local marker=markerFrame:CreateTexture(nil,"OVERLAY"); marker:SetAllPoints(markerFrame); marker:SetTexture(RAID_TARGET_TEXTURE); frame.RaidTargetIndicator=marker
-    if unitType=="player" or unitType=="party" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
+    if unitType=="player" or unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
 
     ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -324,7 +331,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         elseif event=="UNIT_NAME_UPDATE" then UpdateName(self)
         elseif event=="UNIT_PORTRAIT_UPDATE" or event=="UNIT_MODEL_CHANGED" then UpdatePortrait(self)
         elseif event=="RAID_TARGET_UPDATE" then UpdateRaidTarget(self)
-        elseif event=="GROUP_ROSTER_UPDATE" and self.MIUF_UnitType=="party" then UpdateFrame(self)
+        elseif event=="GROUP_ROSTER_UPDATE" and (self.MIUF_UnitType=="party" or self.MIUF_UnitType=="raid") then UpdateFrame(self)
         elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_CONNECTION" then UpdateFrame(self)
         elseif event=="UNIT_FACTION" then ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
@@ -345,7 +352,10 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         end)
     end
 
-    local moverLabel=(unitType=="party" or unitType=="boss") and unit or unitType; CreateMover(frame,moverLabel,positionKey); ApplyPosition(positionKey,frame); ApplyFrameState(frame,BuildFrameState(unitType)); UpdateFrame(frame)
+    if unitType~="raid" then
+        local moverLabel=(unitType=="party" or unitType=="boss") and unit or unitType; CreateMover(frame,moverLabel,positionKey); ApplyPosition(positionKey,frame)
+    end
+    ApplyFrameState(frame,BuildFrameState(unitType)); UpdateFrame(frame)
     if registerWatch~=false then
         if unitType=="party" and unit:match("^party%d+$") and RegisterStateDriver then RegisterStateDriver(frame,"visibility",string.format("[group:raid] hide; [group:party,@%s,exists] show; hide",unit)) else RegisterUnitWatch(frame) end
     else frame:Hide() end
@@ -353,6 +363,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
 end
 
 function ns.ApplyFrameType(unitType)
+    if unitType=="raid" and InCombatLockdown() then return end
     local state=BuildFrameState(unitType); for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
     if not InCombatLockdown() and ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
@@ -382,7 +393,7 @@ function ns.ResetLayout() for _,frame in pairs(frames) do ApplyPosition(frame.MI
 
 local spawned=false
 function ns.SpawnAllFrames()
-    if spawned then return end; spawned=true
+    if spawned or InCombatLockdown() then return end; spawned=true
     if ns.IsFrameTypeEnabled("player") then CreateUnitFrame("player","MIUF_Player") end
     if ns.IsFrameTypeEnabled("target") then CreateUnitFrame("target","MIUF_Target") end
     if ns.IsFrameTypeEnabled("focus") then CreateUnitFrame("focus","MIUF_Focus") end
@@ -393,6 +404,15 @@ function ns.SpawnAllFrames()
         CreateUnitFrame("player","MIUF_PartyPlayer","party","party1",false,"partyplayer")
     end
     if ns.IsFrameTypeEnabled("boss") then for i=1,5 do local unit="boss"..i; CreateUnitFrame(unit,"MIUF_Boss"..i,"boss","boss1") end end
+    if ns.IsFrameTypeEnabled("raid") then
+        local anchor=ns.GetRaidAnchor()
+        local capacity=ns.GetGroupLayout("raid").legacy40 and 40 or 30
+        for i=1,capacity do
+            local frame=CreateUnitFrame("raid"..i,"MIUF_Raid"..i,"raid","raid")
+            frame:SetParent(anchor)
+        end
+        ns.ApplyRaidLayout()
+    end
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
 end
 
@@ -400,7 +420,7 @@ local rangeWatcher=CreateFrame("Frame"); local rangeElapsed=0
 rangeWatcher:SetScript("OnUpdate",function(_,elapsed)
     rangeElapsed=rangeElapsed+elapsed; if rangeElapsed<0.25 then return end; rangeElapsed=0
     for _,frame in pairs(frames) do
-        if frame.MIUF_UnitType=="party" and frame.MIUF_Unit~="player" and UnitExists(frame.MIUF_Unit) then
+        if (frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="raid") and frame.MIUF_Unit~="player" and UnitExists(frame.MIUF_Unit) then
             local inRange=UnitInRange(frame.MIUF_Unit)
             if frame.SetAlphaFromBoolean then frame:SetAlphaFromBoolean(inRange,1,0.55) elseif not canaccessvalue or canaccessvalue(inRange) then frame:SetAlpha(inRange and 1 or 0.55) end
         elseif frame.MIUF_UnitType~="party" or frame.MIUF_Unit=="player" then frame:SetAlpha(1) end

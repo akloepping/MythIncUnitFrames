@@ -61,7 +61,7 @@ for unitType in pairs(defaultSizes) do
         showPortrait = false,
         portraitSide = "LEFT",
         portraitPercent = 22,
-        showRoleIcon = false,
+        showRoleIcon = unitType == "raid",
         roleIconXOffset = 3,
         roleIconYOffset = -3,
         showRaidMarker = true,

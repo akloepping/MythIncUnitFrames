@@ -251,6 +251,7 @@ end
 function ns.ApplyGroupLayout(unitType)
     if unitType == "party" then ns.ApplyPartyLayout()
     elseif unitType == "boss" then ns.ApplyBossLayout()
+    elseif unitType == "raid" then ns.ApplyRaidLayout()
     else return end
 
     if ns.AreFrameMoversLocked and not ns.AreFrameMoversLocked() then
@@ -311,11 +312,45 @@ function ns.CalculateRaidGeometry(layout, width, height)
     return positions, bounds
 end
 
-local raidAnchor, raidGhosts = nil, {}
+local raidAnchor, raidPreview, raidGhosts = nil, nil, {}
 
+function ns.GetRaidAnchor()
+    if not raidAnchor then
+        if InCombatLockdown() then return nil end
+        raidAnchor = CreateFrame("Frame", nil, UIParent)
+        raidAnchor:SetMovable(true)
+        local size, position = ns.GetSize("raid"), ns.GetPosition("raid")
+        raidAnchor:SetSize(size.width,size.height)
+        raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
+        ns.raidFrameMoverOwner = raidAnchor
+    end
+    return raidAnchor
+end
+
+function ns.ApplyRaidLayout()
+    if InCombatLockdown() or not raidAnchor then return end
+    local size, position = ns.GetSize("raid"), ns.GetPosition("raid")
+    raidAnchor:SetSize(size.width,size.height)
+    raidAnchor:ClearAllPoints()
+    raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
+    local positions = ns.CalculateRaidGeometry(ns.GetGroupLayout("raid"),size.width,size.height)
+    for index, offset in ipairs(positions) do
+        local frame = ns.frames and ns.frames["raid"..index]
+        if frame then
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT",raidAnchor,"TOPLEFT",offset.x,offset.y)
+        end
+    end
+end
+
+function ns.IsRaidPreviewShown()
+    return raidPreview and raidPreview:IsShown() or false
+end
 
 function ns.HideRaidPreview()
-    if raidAnchor then raidAnchor:Hide() end
+    if raidPreview then raidPreview:Hide() end
+    -- The shared anchor must never be hidden: secure watches own live visibility.
+    if not InCombatLockdown() then ns.ApplyRaidLayout() end
 end
 
 function ns.ShowRaidPreview()
@@ -324,13 +359,13 @@ function ns.ShowRaidPreview()
     local size = ns.ConfigSessionGetFrame("raid").size
     local layout = ns.ConfigSessionGetGroup("raid")
     local position = ns.ConfigSessionGetPosition("raid")
-    if not raidAnchor then
-        raidAnchor = CreateFrame("Frame", nil, UIParent)
-        raidAnchor:SetSize(size.width, size.height)
-        raidAnchor:SetFrameStrata("DIALOG")
-        raidAnchor:SetMovable(true)
+    ns.GetRaidAnchor()
+    if not raidPreview then
+        raidPreview = CreateFrame("Frame", nil, raidAnchor)
+        raidPreview:SetAllPoints(raidAnchor)
+        raidPreview:SetFrameStrata("DIALOG")
         -- One non-secure mover owns the eventual group anchor, never a unit frame.
-        local mover = CreateFrame("Button", nil, raidAnchor, "BackdropTemplate")
+        local mover = CreateFrame("Button", nil, raidPreview, "BackdropTemplate")
         mover:SetAllPoints(raidAnchor); mover:SetFrameLevel(45)
         mover:SetBackdrop({ bgFile = PREVIEW_BG, edgeFile = PREVIEW_BG, edgeSize = 1 })
         mover:SetBackdropColor(0.05, 0.35, 0.8, 0.2)
@@ -338,8 +373,8 @@ function ns.ShowRaidPreview()
         mover:RegisterForDrag("LeftButton")
         mover:SetScript("OnDragStart", function() if not InCombatLockdown() then raidAnchor:StartMoving() end end)
         mover:SetScript("OnDragStop", function()
-            raidAnchor:StopMovingOrSizing()
             if InCombatLockdown() then return end
+            raidAnchor:StopMovingOrSizing()
             local point, _, relativePoint, x, y = raidAnchor:GetPoint(1)
             ns.ConfigSessionStagePosition("raid", { point = point, relativePoint = relativePoint, x = x, y = y })
             if ns.RefreshConfig then ns.RefreshConfig() end
@@ -348,7 +383,7 @@ function ns.ShowRaidPreview()
         ns.raidFrameMoverOwner = raidAnchor
         for index = 1, 40 do
             local ghost = CreatePreviewFrame("raid", index)
-            ghost:SetParent(raidAnchor)
+            ghost:SetParent(raidPreview)
             ghost.Label:SetText("Raid " .. index .. " (G" .. math.ceil(index / 5) .. ")")
             raidGhosts[index] = ghost
         end
@@ -367,14 +402,16 @@ function ns.ShowRaidPreview()
             ghost:Hide()
         end
     end
-    raidAnchor:Show()
+    raidPreview:Show()
 end
 
 local setMoversLocked = ns.SetFrameMoversLocked
 ns.SetFrameMoversLocked = function(locked)
     setMoversLocked(locked)
     if locked then ns.HideRaidPreview() end
+    if not locked and not InCombatLockdown() and ns.IsFrameTypeEnabled("raid") then ns.ShowRaidPreview() end
 end
 local raidWatcher = CreateFrame("Frame")
 raidWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+raidWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 raidWatcher:SetScript("OnEvent", function() ns.HideRaidPreview() end)

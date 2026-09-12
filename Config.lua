@@ -110,7 +110,7 @@ local function PreviewFrameSliders()
         settings.size={width=width,height=height}
         ns.ConfigSessionStageFrame("raid",settings)
         MarkPending("Configuration changes are pending.")
-        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+        if ns.IsRaidPreviewShown() then ns.ShowRaidPreview() end
         return
     end
     local powerPercent=Round(powerSlider:GetValue())
@@ -478,7 +478,7 @@ local function CreateFramesPage()
         ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
         ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
         ns.RefreshConfig()
-        if ns.raidFrameMoverOwner and ns.raidFrameMoverOwner:IsShown() then ns.ShowRaidPreview() end
+        if ns.IsRaidPreviewShown() then ns.ShowRaidPreview() end
     end)
 
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
