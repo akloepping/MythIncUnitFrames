@@ -153,6 +153,7 @@ end
 
 local function ApplyAuraVisual(unitType,auraType,layout)
     if InCombatLockdown() or not ns.frames or not layout then return end
+    if unitType=="raid" and auraType=="debuffs" and ns.PreviewRaidDebuffLayout then ns.PreviewRaidDebuffLayout(layout); return end
     local field=AURA_FIELDS[auraType]; if not field then return end
     local point,relativePoint=GetAuraAnchor(layout)
     local savedLayout=ns.GetAuraLayout(unitType,auraType)
@@ -184,7 +185,8 @@ local function RestoreAuraPreview()
 end
 
 local function AuraAvailable(unitType,auraType)
-    if unitType=="boss" or unitType=="raid" then return false end
+    if unitType=="boss" then return false end
+    if unitType=="raid" then return auraType=="debuffs" end
     if auraType=="buffs" then return unitType=="player" or unitType=="target" or unitType=="focus" or unitType=="party" or unitType=="targettarget" end
     if auraType=="debuffs" then return unitType~="pet" end
     if auraType=="defensives" then return unitType=="player" or unitType=="party" end
@@ -355,8 +357,8 @@ function ns.RefreshConfig()
     else
         selectedLabel:SetText(DISPLAY_NAMES[selectedType].." Settings")
     end
-    if (selectedType=="boss" or selectedType=="raid") and selectedPage=="auras" then selectedPage="frames" end
-    auraTab:SetShown((selectedType~="boss" and selectedType~="raid") or selectedPage=="profiles")
+    if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end
+    auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
     if selectedPage=="frames" then
@@ -369,7 +371,7 @@ function ns.RefreshConfig()
         raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
     elseif selectedPage=="auras" then
-        for auraType,button in pairs(auraButtons) do button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
+        for auraType,button in pairs(auraButtons) do button:SetShown(selectedType~="raid" or auraType=="debuffs"); button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
         RefreshAuraControls(); RefreshTrackedWindow(); auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
     else
         if selectedPage=="profiles" then RefreshProfilesControls() end
@@ -470,6 +472,8 @@ local function CreateFramesPage()
         ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
         ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
         ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
+        ns.ConfigSessionStageAura("raid","debuffs",ns.GetAuraLayout("raid","debuffs"))
+        if ns.PreviewRaidDebuffLayout then ns.PreviewRaidDebuffLayout(ns.GetAuraLayout("raid","debuffs")) end
         RestoreFramePreview("raid")
         ns.RefreshConfig()
         ns.UpdateRaidPreview()
@@ -528,9 +532,9 @@ local function CreateAurasPage()
         local b=MakeButton(aurasPage,AURA_NAMES[auraType],105,26); if prev then b:SetPoint("LEFT",prev,"RIGHT",7,0) else b:SetPoint("TOPLEFT",20,-96) end
         b:SetScript("OnClick",function() RestoreAuraPreview(); selectedAura=auraType; ns.RefreshConfig() end); auraButtons[auraType]=b; prev=b
     end
-    auraEnableButton=MakeButton(aurasPage,"Enabled: On",125,26); auraEnableButton:SetPoint("TOPLEFT",20,-132); auraEnableButton:SetScript("OnClick",function() auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled); RefreshAuraControls(); if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end end)
+    auraEnableButton=MakeButton(aurasPage,"Enabled: On",125,26); auraEnableButton:SetPoint("TOPLEFT",20,-132); auraEnableButton:SetScript("OnClick",function() auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled); if selectedType=="raid" then PreviewAuraSliders() end; RefreshAuraControls(); if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end end)
     auraTextButton=MakeButton(aurasPage,"Text: On",110,26); auraTextButton:SetPoint("LEFT",auraEnableButton,"RIGHT",7,0); auraTextButton:SetScript("OnClick",function() auraWorking.showText=auraWorking.showText==false; StageAuraValue("showText",auraWorking.showText); RefreshAuraControls() end)
-    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)) end end)
+    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)); if selectedType=="raid" then PreviewAuraSliders() end end end)
     auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end end)
     auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end end)
     local function StageAuraPosition()
@@ -541,7 +545,7 @@ local function CreateAurasPage()
     auraXSlider=MakeSlider(aurasPage,"AuraXOffset","X offset",-400,400,1,180); auraXSlider:SetPoint("TOPLEFT",35,-275); auraXSlider:HookScript("OnValueChanged",StageAuraPosition)
     auraYSlider=MakeSlider(aurasPage,"AuraYOffset","Y offset",-400,400,1,180); auraYSlider:SetPoint("TOPLEFT",260,-275); auraYSlider:HookScript("OnValueChanged",StageAuraPosition)
     auraAnchorButton=MakeButton(aurasPage,"Anchor: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls() end)
-    auraGrowthButton=MakeButton(aurasPage,"Grow: Right",125,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",7,0); auraGrowthButton:SetScript("OnClick",function() auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth); RefreshAuraControls() end)
+    auraGrowthButton=MakeButton(aurasPage,"Grow: Right",125,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",7,0); auraGrowthButton:SetScript("OnClick",function() auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth); if selectedType=="raid" then PreviewAuraSliders() end; RefreshAuraControls() end)
     local anchorNote=aurasPage:CreateFontString(nil,"OVERLAY"); anchorNote:SetFont(FONT,10,"OUTLINE"); anchorNote:SetPoint("TOPLEFT",35,-323); anchorNote:SetWidth(620); anchorNote:SetJustifyH("LEFT"); anchorNote:SetText("X/Y offsets are measured from the selected unit frame's Top or Bottom anchor edge."); anchorNote:SetTextColor(0.7,0.76,0.82)
     buffFilterPanel=CreateFrame("Frame",nil,aurasPage); buffFilterPanel:SetPoint("TOPLEFT",20,-365); buffFilterPanel:SetSize(650,72)
     local note=buffFilterPanel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,11,"OUTLINE"); note:SetPoint("TOPLEFT"); note:SetText("Tracked Buffs: only buffs you choose are shown on normal buff frames.")

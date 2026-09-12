@@ -75,7 +75,11 @@ for unitType in pairs(defaultSizes) do
         debuffs = { enabled = true, showText = true, iconSize = 22, maxCount = 6, spacing = 2, anchor = "BOTTOM", growth = "RIGHT", xOffset = 0, yOffset = -26 },
         defensives = { enabled = true, showText = true, iconSize = 20, maxCount = 3, spacing = 2, anchor = "TOP", growth = "LEFT", xOffset = 0, yOffset = 26 },
     }
-    if unitType == "raid" then defaultAuraLayout[unitType] = nil end
+    if unitType == "raid" then
+        defaultAuraLayout[unitType] = {
+            debuffs = { enabled = true, showText = true, iconSize = 18, maxCount = 3, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 2 },
+        }
+    end
 end
 
 local function CopyTable(source)

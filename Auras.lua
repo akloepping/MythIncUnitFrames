@@ -15,10 +15,23 @@ local AURA_TYPES = {
         { key = "defensivesExternal", filter = "HELPFUL|EXTERNAL_DEFENSIVE" },
     } },
 }
-local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true }
+local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true, raid = true }
 local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true }
 
-local function BuildCandidateFilters(auraType)
+local FILTERED_DEBUFF_TYPES = { player = true, party = true, targettarget = true }
+local DEBUFF_EXCLUSIONS = {
+    [26013] = true, [71041] = true, [206151] = true, [1313593] = true, -- Deserter / Challenger's Burden
+    [57723] = true, [390435] = true, [57724] = true, [80354] = true, -- Exhaustion / Sated
+    [95809] = true, [160455] = true, [264689] = true, -- Bloodlust exhaustion variants
+    [124255] = true, -- Stagger
+}
+
+local function BuildCandidateFilters(auraType, unitType)
+    if auraType == "debuffs" and FILTERED_DEBUFF_TYPES[unitType] then
+        local excluded = {}
+        for spellID in pairs(DEBUFF_EXCLUSIONS) do excluded[spellID] = true end
+        return { isFromPlayerOrPlayerPet = false, excludeSpellIDs = excluded }
+    end
     if auraType ~= "buffs" then return {} end
     local includeSpellIDs = {}
     local tracked = ns.GetTrackedBuffs and ns.GetTrackedBuffs() or {}
@@ -69,31 +82,34 @@ local function InitializeAuraButton(button, layout)
     button:SetApplicationCount(count, {})
 end
 
-local function PositionAuraAnchor(frame, auraType)
+local function PositionAuraAnchor(frame, auraType, previewLayout)
     local data = frame.MIUF_Auras and frame.MIUF_Auras[auraType]
     if not data or not data.anchor then return end
-    local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
+    local layout = previewLayout or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
     local point, relativePoint = GetAnchor(layout)
     data.anchor:ClearAllPoints()
     data.anchor:SetPoint(point, frame, relativePoint, layout.xOffset or 0, layout.yOffset or 0)
 end
 
-local function ApplyContainerLayout(frame, auraType)
+local function ApplyContainerLayout(frame, auraType, previewLayout)
     local data = frame.MIUF_Auras and frame.MIUF_Auras[auraType]
     if not data then return end
-    local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
+    local layout = previewLayout or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
     local size = math.max(8, tonumber(layout.iconSize) or 22)
     local spacing = math.max(0, tonumber(layout.spacing) or 2)
     local width = math.max(size, frame:GetWidth())
     local _, _, flowAnchor, growthX, growthY = GetAnchor(layout)
     data.anchor:SetSize(width, size)
-    PositionAuraAnchor(frame, auraType)
+    PositionAuraAnchor(frame, auraType, layout)
     SetFlowLayout(data.container, flowAnchor, growthX, growthY)
     for _, groupKey in ipairs(data.groupKeys or {}) do
         if data.container.SetAuraGroupLayout then
             data.container:SetAuraGroupLayout(groupKey, { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing })
+        end
+        if frame.MIUF_UnitType == "raid" and data.container.SetAuraGroupMaxFrameCount then
+            data.container:SetAuraGroupMaxFrameCount(groupKey, math.max(1, tonumber(layout.maxCount) or 3))
         end
         if data.container.SetAuraGroupEnabled then data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false) end
     end
@@ -101,7 +117,7 @@ local function ApplyContainerLayout(frame, auraType)
 end
 
 local function SaveDraggedAuraPosition(frame, auraType, anchor)
-    local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
+    local layout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionGetAura("raid", auraType) or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
     local point, relativePoint = GetAnchor(layout)
     local x, y = 0, 0
@@ -114,17 +130,19 @@ local function SaveDraggedAuraPosition(frame, auraType, anchor)
     elseif point == "TOPRIGHT" and relativePoint == "BOTTOMRIGHT" then
         x = (anchor:GetRight() or 0) - (frame:GetRight() or 0); y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
     end
-    ns.SaveAuraLayout(frame.MIUF_UnitType, auraType, {
-        xOffset = math.floor(x + (x >= 0 and 0.5 or -0.5)),
-        yOffset = math.floor(y + (y >= 0 and 0.5 or -0.5)),
+    local saveLayout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionStageAura or ns.SaveAuraLayout
+    saveLayout(frame.MIUF_UnitType, auraType, {
+        xOffset = x >= 0 and math.floor(x + 0.5) or math.ceil(x - 0.5),
+        yOffset = y >= 0 and math.floor(y + 0.5) or math.ceil(y - 0.5),
     })
-    ns.ApplyAuraPositions(frame.MIUF_UnitType, auraType)
+    if frame.MIUF_UnitType == "raid" then ns.PreviewRaidDebuffLayout(ns.ConfigSessionGetAura("raid", "debuffs"))
+    else ns.ApplyAuraPositions(frame.MIUF_UnitType, auraType) end
     if ns.RefreshConfig then ns.RefreshConfig() end
 end
 
 local function CreateAuraMover(frame, auraType, anchor)
     anchor:SetMovable(true); anchor:SetClampedToScreen(true)
-    local mover = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local mover = CreateFrame("Frame", nil, frame.MIUF_UnitType == "raid" and anchor or UIParent, "BackdropTemplate")
     mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(anchor)
     mover:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
     mover:SetBackdropColor(0.35, 0.18, 0.65, 0.24); mover:SetBackdropBorderColor(0.75, 0.45, 1, 1)
@@ -159,11 +177,12 @@ local function CreateAuraContainer(frame, auraType)
     for _, group in ipairs(typeInfo.groups or {}) do
         local groupOptions = {
             maxFrameCount = maxCount,
-            candidateFilters = BuildCandidateFilters(auraType),
+            candidateFilters = BuildCandidateFilters(auraType, frame.MIUF_UnitType),
             layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
             initializeFrame = function(button) InitializeAuraButton(button, layout) end,
         }
-        local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
+        local filter = auraType == "debuffs" and frame.MIUF_UnitType == "raid" and "HARMFUL|RAID_IN_COMBAT" or group.filter
+        local added, addError = pcall(container.AddAuraGroup, container, group.key, filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
         groupKeys[#groupKeys + 1] = group.key
     end
@@ -251,7 +270,7 @@ end
 local function AttachFrameAuras(frame)
     if not frame or not AURA_UNIT_TYPES[frame.MIUF_UnitType] or frame.MIUF_AurasAttached then return end
     frame.MIUF_AurasAttached = true
-    CreateAuraContainer(frame, "buffs")
+    if frame.MIUF_UnitType ~= "raid" then CreateAuraContainer(frame, "buffs") end
     CreateAuraContainer(frame, "debuffs")
     if frame.MIUF_UnitType == "player" or frame.MIUF_UnitType == "party" then CreateAuraContainer(frame, "defensives") end
     CreateDispelHighlight(frame)
@@ -260,6 +279,15 @@ end
 local function AttachAuras()
     if not ns.frames then return end
     for _, frame in pairs(ns.frames) do AttachFrameAuras(frame) end
+    ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
+end
+
+-- Raid configuration previews use the same Blizzard layout path as saved state.
+function ns.PreviewRaidDebuffLayout(layout)
+    if InCombatLockdown() then return end
+    for _, frame in pairs(ns.frames or {}) do
+        if frame.MIUF_UnitType == "raid" then ApplyContainerLayout(frame, "debuffs", layout) end
+    end
 end
 
 function ns.ApplyAuraPositions(unitType, auraType)
@@ -289,9 +317,9 @@ function ns.SetAuraMoversLocked(locked)
     for _, frame in pairs(ns.frames or {}) do
         if frame.MIUF_AuraMovers then
             for auraType, mover in pairs(frame.MIUF_AuraMovers) do
-                local layout = ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
+                local layout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionGetAura and ns.ConfigSessionGetAura("raid", auraType) or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
                 local previewOff = ns.IsUnitTypePreviewEnabled and not ns.IsUnitTypePreviewEnabled(frame.MIUF_UnitType)
-                if locked or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
+                if locked or (frame.MIUF_UnitType == "raid" and InCombatLockdown()) or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
             end
         end
     end
@@ -304,7 +332,7 @@ function ns.PreviewAuraMover(unitType, auraType, enabled)
         if frame.MIUF_UnitType == unitType and frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType] then
             local mover = frame.MIUF_AuraMovers[auraType]
             local previewOn = not ns.IsUnitTypePreviewEnabled or ns.IsUnitTypePreviewEnabled(unitType)
-            if enabled and previewOn and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
+            if enabled and previewOn and (unitType ~= "raid" or not InCombatLockdown()) and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
         end
     end
 end
@@ -321,4 +349,21 @@ function ns.SpawnAllFrames(...)
     if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachAuras() end
 end
 
-ns.RefreshAuras = AttachAuras
+function ns.RefreshAuras()
+    if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachAuras() end
+end
+
+local raidMoverCombatWatcher = CreateFrame("Frame")
+raidMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+raidMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+raidMoverCombatWatcher:SetScript("OnEvent", function()
+    for _, frame in pairs(ns.frames or {}) do
+        if frame.MIUF_UnitType == "raid" and frame.MIUF_AuraMovers then
+            frame.MIUF_AuraMovers.debuffs:Hide()
+        end
+    end
+    if not InCombatLockdown() then
+        if ns.ConfigSessionGetAura then ns.PreviewRaidDebuffLayout(ns.ConfigSessionGetAura("raid", "debuffs")) end
+        ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
+    end
+end)
