@@ -168,6 +168,8 @@ local function ApplyIndicatorLayout(frame, appearance)
         frame.RaidTargetIndicatorFrame:SetPoint("CENTER",frame,"TOP",appearance.raidMarkerXOffset or 0,appearance.raidMarkerYOffset or 2)
     end
     if frame.GroupRoleIndicator then
+        local size=math.max(8,math.min(48,tonumber(appearance.roleIconSize) or 14))
+        frame.GroupRoleIndicator:SetSize(size,size)
         frame.GroupRoleIndicator:ClearAllPoints(); frame.GroupRoleIndicator:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",appearance.roleIconXOffset or 3,appearance.roleIconYOffset or -3)
     end
 end
@@ -186,11 +188,11 @@ end
 local function UpdateRoleIndicator(frame, appearance)
     local icon=frame.GroupRoleIndicator; if not icon then return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
-    if not appearance.showRoleIcon and frame.MIUF_UnitType~="raid" then icon:Hide(); return end
+    if not appearance.showRoleIcon then icon:Hide(); return end
     local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local atlas
     if not canaccessvalue(role) then icon:Hide(); return end
     if role=="TANK" then atlas="groupfinder-icon-role-large-tank" elseif role=="HEALER" then atlas="groupfinder-icon-role-large-heal" elseif role=="DAMAGER" then atlas="groupfinder-icon-role-large-dps" end
-    if atlas then icon:SetAtlas(atlas,true); icon:Show() else icon:Hide() end
+    if atlas then icon:SetAtlas(atlas); icon:Show() else icon:Hide() end
 end
 
 local function UpdateConnectionState(frame)

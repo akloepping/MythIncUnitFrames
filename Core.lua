@@ -64,6 +64,7 @@ for unitType in pairs(defaultSizes) do
         showRoleIcon = unitType == "raid",
         roleIconXOffset = 3,
         roleIconYOffset = -3,
+        roleIconSize = 14,
         showRaidMarker = true,
         raidMarkerSize = 20,
         raidMarkerXOffset = 0,

@@ -18,7 +18,7 @@ local selectedType, selectedAura, selectedPage = "player", "buffs", "frames"
 local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
-local roleXSlider, roleYSlider, raidXSlider, raidYSlider, raidSizeSlider
+local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
@@ -36,7 +36,6 @@ local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local raidPreviewControls
 local raidLegacyButton
-local raidHiddenPanels = {}
 local MarkPending
 local previewFrameType
 local previewAuraUnitType, previewAuraType
@@ -105,14 +104,6 @@ end
 local function PreviewFrameSliders()
     if refreshing then return end
     local width,height=Round(widthSlider:GetValue()),Round(heightSlider:GetValue())
-    if selectedType=="raid" then
-        local settings=ns.ConfigSessionGetFrame("raid")
-        settings.size={width=width,height=height}
-        ns.ConfigSessionStageFrame("raid",settings)
-        MarkPending("Configuration changes are pending.")
-        ns.UpdateRaidPreview()
-        return
-    end
     local powerPercent=Round(powerSlider:GetValue())
     local portraitPercent=Round(portraitSlider:GetValue())
     local fontSize=Round(fontSlider:GetValue())
@@ -129,18 +120,23 @@ local function PreviewFrameSliders()
     working.nameXOffset=nameX; working.nameYOffset=nameY
     working.healthXOffset=healthX; working.healthYOffset=healthY
     working.roleIconXOffset=roleX; working.roleIconYOffset=roleY
+    working.roleIconSize=Round(roleSizeSlider:GetValue())
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
     ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
     MarkPending("Configuration changes are pending.")
+    if selectedType=="raid" then ns.UpdateRaidPreview() end
     if InCombatLockdown() or not ns.PreviewFrameType then return end
     ns.PreviewFrameType(selectedType,{
-        size={width=width,height=height},
+        -- Raid ghosts preview structural sizing; keep live button dimensions
+        -- aligned with their saved geometry until Apply/reload.
+        size=selectedType=="raid" and ns.GetSize("raid") or {width=width,height=height},
         powerPercent=powerPercent,
         appearance=working,
     })
     PreviewGroupControls({width=width,height=height})
+    if selectedType=="raid" then ns.UpdateRaidPreview() end
     previewFrameType=selectedType
 end
 
@@ -238,14 +234,14 @@ end
 
 local function RefreshFrameControls()
     local isRaid=selectedType=="raid"
-    for _,panel in ipairs(raidHiddenPanels) do panel:SetShown(not isRaid) end
-    for _,slider in ipairs({powerSlider,portraitSlider}) do slider:SetShown(not isRaid); slider.ValueBox:SetShown(not isRaid) end
+    portraitSlider:SetShown(not isRaid); portraitSlider.ValueBox:SetShown(not isRaid)
     portraitButton:SetShown(not isRaid); sideButton:SetShown(not isRaid)
     nameButton:SetText("Name: "..(working.showName and "On" or "Off")); healthTextButton:SetText("Health %: "..(working.showHealthText and "On" or "Off"))
     portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
-    local roleAvailable=selectedType=="player" or selectedType=="party"
+    local roleAvailable=selectedType=="player" or selectedType=="party" or selectedType=="raid"
     roleIconButton:SetShown(roleAvailable); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
     roleXSlider:SetShown(roleAvailable); roleXSlider.ValueBox:SetShown(roleAvailable); roleYSlider:SetShown(roleAvailable); roleYSlider.ValueBox:SetShown(roleAvailable)
+    roleSizeSlider:SetShown(roleAvailable); roleSizeSlider.ValueBox:SetShown(roleAvailable)
     raidMarkerButton:SetText("Raid Marker: "..(working.showRaidMarker~=false and "On" or "Off"))
     textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
@@ -257,7 +253,7 @@ local function RefreshGroupControls()
     raidLegacyButton:SetShown(isRaid)
     local show=selectedType=="party" or selectedType=="boss" or isRaid; partyLayoutPanel:SetShown(show); if not show then return end
     partyLayoutPanel.Title:SetText(DISPLAY_NAMES[selectedType].." group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
-    partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",15,isRaid and -170 or -320)
+    partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",15,isRaid and -240 or -320)
     partySpacingSlider:SetShown(not isRaid); partySpacingSlider.ValueBox:SetShown(not isRaid)
     partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical"))
     partyDirectionButton:SetShown(not isRaid)
@@ -369,6 +365,7 @@ function ns.RefreshConfig()
         local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
+        roleSizeSlider:SetValue(working.roleIconSize or 14)
         raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
     elseif selectedPage=="auras" then
@@ -447,7 +444,6 @@ local function CreateFramesPage()
     local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
     local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
     local indicators=MakeSection(framesPage,"Indicators",330,175); indicators:SetPoint("TOPLEFT",20,-480)
-    raidHiddenPanels={text,appearance,indicators}
     widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
@@ -474,6 +470,7 @@ local function CreateFramesPage()
         ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
         ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
         ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
+        RestoreFramePreview("raid")
         ns.RefreshConfig()
         ns.UpdateRaidPreview()
     end)
@@ -512,8 +509,9 @@ local function CreateFramesPage()
 
     roleIconButton=MakeButton(indicators,"Role Icon: Off",145,24); roleIconButton:SetPoint("TOPLEFT",10,-30); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls(); PreviewFrameSliders() end)
     raidMarkerButton=MakeButton(indicators,"Raid Marker: On",145,24); raidMarkerButton:SetPoint("LEFT",roleIconButton,"RIGHT",10,0); raidMarkerButton:SetScript("OnClick",function() working.showRaidMarker=working.showRaidMarker==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,125); roleXSlider:SetPoint("TOPLEFT",15,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,125); roleYSlider:SetPoint("TOPLEFT",180,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,85); roleXSlider:SetPoint("TOPLEFT",10,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,85); roleYSlider:SetPoint("TOPLEFT",120,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleSizeSlider=MakeSlider(indicators,"RoleIconSize","Role Size",8,48,1,85); roleSizeSlider:SetPoint("TOPLEFT",230,-78); roleSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
