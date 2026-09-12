@@ -77,7 +77,7 @@ for unitType in pairs(defaultSizes) do
     }
     if unitType == "raid" then
         defaultAuraLayout[unitType] = {
-            debuffs = { enabled = true, showText = true, iconSize = 18, maxCount = 3, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 2 },
+            debuffs = { enabled = true, showText = true, iconSize = 18, maxCount = 2, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 2 },
         }
     end
 end
