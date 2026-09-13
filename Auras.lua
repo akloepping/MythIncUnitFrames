@@ -18,6 +18,49 @@ local AURA_TYPES = {
 local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true, raid = true }
 local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true, raid = true }
 
+local availabilityDeferred = CreateFrame("Frame")
+local pendingAvailability = {}
+
+local function IsAuraUnitAvailable(frame)
+    -- These checks prove disconnection/missing tokens only. Neither healing
+    -- range nor world visibility reliably describes access to cached auras;
+    -- leave connected, existing distant units to Blizzard's aura updates.
+    if frame.MIUF_AuraLeavingWorld then return false end
+    local unit = ns.GetFrameDisplayUnit(frame)
+    if not unit then return false end
+    local exists = UnitExists(unit)
+    if not canaccessvalue(exists) or not exists then return false end
+    local connected = UnitIsConnected(unit)
+    return canaccessvalue(connected) and connected == true
+end
+
+function ns.RefreshFrameAuraAvailability(frame, forceRefresh)
+    local available = IsAuraUnitAvailable(frame)
+    local recovering = available and (frame.MIUF_AurasAvailable ~= true or forceRefresh)
+    frame.MIUF_AurasAvailable = available
+    local function RefreshDisplay(container, gate)
+        if not gate then return end
+        if InCombatLockdown() and gate:IsProtected() then
+            pendingAvailability[frame] = true
+            availabilityDeferred:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        -- UpdateAllAuras is Blizzard's public full-rebuild path. Keep group
+        -- configuration and update subscriptions intact, even while hidden.
+        if recovering then container:UpdateAllAuras() end
+        gate:SetShown(available)
+    end
+    for _, data in pairs(frame.MIUF_Auras or {}) do RefreshDisplay(data.container, data.displayGate) end
+    RefreshDisplay(frame.MIUF_DispelHighlight, frame.MIUF_DispelDisplayGate)
+end
+
+availabilityDeferred:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    local pending = pendingAvailability
+    pendingAvailability = {}
+    for frame in pairs(pending) do ns.RefreshFrameAuraAvailability(frame, true) end
+end)
+
 local FILTERED_DEBUFF_TYPES = { player = true, party = true, targettarget = true, raid = true }
 local DEBUFF_EXCLUSIONS = {
     [26013] = true, [71041] = true, [206151] = true, [1313593] = true, -- Deserter / Challenger's Burden
@@ -114,6 +157,7 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
         if data.container.SetAuraGroupEnabled then data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false) end
     end
     if not data.container.SetAuraGroupEnabled then data.container:SetShown(layout.enabled ~= false) end
+    ns.RefreshFrameAuraAvailability(frame)
 end
 
 local function SaveDraggedAuraPosition(frame, auraType, anchor)
@@ -172,7 +216,11 @@ local function CreateAuraContainer(frame, auraType)
     local point, relativePoint, flowAnchor, growthX, growthY = GetAnchor(layout)
     local anchor = CreateFrame("Frame", nil, frame)
     anchor:SetSize(width, size); anchor:SetPoint(point, frame, relativePoint, layout.xOffset or 0, layout.yOffset or 0)
-    local ok, container = pcall(CreateFrame, "AuraContainer", nil, anchor, "CustomAuraContainerTemplate")
+    -- Gate the live display only; the anchor and its mover remain available
+    -- for intentional previews and retain their owning cell's visibility.
+    local displayGate = CreateFrame("Frame", nil, anchor)
+    displayGate:SetAllPoints(anchor); displayGate:SetShown(IsAuraUnitAvailable(frame))
+    local ok, container = pcall(CreateFrame, "AuraContainer", nil, displayGate, "CustomAuraContainerTemplate")
     if not ok or not container then print("|cffff5555MIUF: unable to create aura container.|r"); anchor:Hide(); return end
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
     local groupKeys = {}
@@ -191,7 +239,7 @@ local function CreateAuraContainer(frame, auraType)
     local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
     if not unitSet then print("|cffff5555MIUF: aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
     frame.MIUF_Auras = frame.MIUF_Auras or {}
-    frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, groupKeys = groupKeys }
+    frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, displayGate = displayGate, groupKeys = groupKeys }
     local previewAnchor = {}
     function previewAnchor:SetHeight(_) end
     function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end
@@ -209,7 +257,9 @@ end
 -- assignment, so the addon never reads the protected dispel type itself.
 local function CreateDispelHighlight(frame)
     if not frame or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType] or frame.MIUF_DispelHighlight then return end
-    local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
+    local displayGate = CreateFrame("Frame", nil, frame)
+    displayGate:SetAllPoints(frame); displayGate:SetShown(IsAuraUnitAvailable(frame))
+    local ok, container = pcall(CreateFrame, "AuraContainer", nil, displayGate, "CustomAuraContainerTemplate")
     if not ok or not container then print("|cffff5555MIUF: unable to create dispel highlight.|r"); return end
     container:SetAllPoints(frame); container:SetFrameLevel(frame:GetFrameLevel() + 4)
 
@@ -258,6 +308,7 @@ local function CreateDispelHighlight(frame)
     local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
     if not unitSet then print("|cffff5555MIUF: dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r"); container:Hide(); return end
     frame.MIUF_DispelHighlight = container
+    frame.MIUF_DispelDisplayGate = displayGate
 end
 
 function ns.UpdateFrameAuraUnit(frame)
@@ -266,6 +317,7 @@ function ns.UpdateFrameAuraUnit(frame)
         data.container:SetUnit(unit)
     end
     if frame.MIUF_DispelHighlight then frame.MIUF_DispelHighlight:SetUnit(unit) end
+    ns.RefreshFrameAuraAvailability(frame, true)
 end
 
 local function AttachFrameAuras(frame)
@@ -275,11 +327,33 @@ local function AttachFrameAuras(frame)
     CreateAuraContainer(frame, "debuffs")
     if frame.MIUF_UnitType == "player" or frame.MIUF_UnitType == "party" then CreateAuraContainer(frame, "defensives") end
     CreateDispelHighlight(frame)
+    -- The owner already routes connection, roster and display-unit changes.
+    -- A separate UNIT_AURA listener continues receiving recovery updates when
+    -- a live display is hidden. Never replace Blizzard's container scripts.
+    local watcher = CreateFrame("Frame", nil, frame)
+    ns.RegisterFrameUnitEvent(watcher, "UNIT_AURA", frame)
+    watcher:RegisterEvent("PLAYER_LEAVING_WORLD")
+    watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watcher:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_LEAVING_WORLD" then frame.MIUF_AuraLeavingWorld = true
+        elseif event == "PLAYER_ENTERING_WORLD" then frame.MIUF_AuraLeavingWorld = nil end
+        ns.RefreshFrameAuraAvailability(frame, event == "PLAYER_ENTERING_WORLD")
+    end)
+    frame:HookScript("OnEvent", function(self, event)
+        if event == "UNIT_CONNECTION" then ns.RefreshFrameAuraAvailability(self)
+        elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED"
+            or event == "UNIT_TARGET" or event == "PLAYER_ENTERING_WORLD" then ns.UpdateFrameAuraUnit(self) end
+    end)
+    frame:HookScript("OnShow", function(self) ns.UpdateFrameAuraUnit(self) end)
+    ns.RefreshFrameAuraAvailability(frame, true)
 end
 
 local function AttachAuras()
     if not ns.frames then return end
-    for _, frame in pairs(ns.frames) do AttachFrameAuras(frame) end
+    for _, frame in pairs(ns.frames) do
+        AttachFrameAuras(frame)
+        if frame.MIUF_AurasAttached then ns.RefreshFrameAuraAvailability(frame) end
+    end
     ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
 end
 
