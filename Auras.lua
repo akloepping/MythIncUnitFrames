@@ -34,11 +34,22 @@ local function IsAuraUnitAvailable(frame)
     return canaccessvalue(connected) and connected == true
 end
 
+local function IsAuraDisplayAvailable(frame, auraType, available)
+    if not available then return false end
+    if frame.MIUF_UnitType == "party" and auraType == "defensives" then
+        -- Explicit display policy for nonvisible Party members, not a test
+        -- of aura validity or healing range. Never branch on secret results.
+        local visible = UnitIsVisible(ns.GetFrameDisplayUnit(frame))
+        return canaccessvalue(visible) and visible == true
+    end
+    return true
+end
+
 function ns.RefreshFrameAuraAvailability(frame, forceRefresh)
     local available = IsAuraUnitAvailable(frame)
     local recovering = available and (frame.MIUF_AurasAvailable ~= true or forceRefresh)
     frame.MIUF_AurasAvailable = available
-    local function RefreshDisplay(container, gate)
+    local function RefreshDisplay(container, gate, displayAvailable, displayRecovering)
         if not gate then return end
         if InCombatLockdown() and gate:IsProtected() then
             pendingAvailability[frame] = true
@@ -47,11 +58,16 @@ function ns.RefreshFrameAuraAvailability(frame, forceRefresh)
         end
         -- UpdateAllAuras is Blizzard's public full-rebuild path. Keep group
         -- configuration and update subscriptions intact, even while hidden.
-        if recovering then container:UpdateAllAuras() end
-        gate:SetShown(available)
+        if displayRecovering then container:UpdateAllAuras() end
+        gate:SetShown(displayAvailable)
     end
-    for _, data in pairs(frame.MIUF_Auras or {}) do RefreshDisplay(data.container, data.displayGate) end
-    RefreshDisplay(frame.MIUF_DispelHighlight, frame.MIUF_DispelDisplayGate)
+    for auraType, data in pairs(frame.MIUF_Auras or {}) do
+        local displayAvailable = IsAuraDisplayAvailable(frame, auraType, available)
+        local displayRecovering = displayAvailable and (data.available ~= true or forceRefresh)
+        data.available = displayAvailable
+        RefreshDisplay(data.container, data.displayGate, displayAvailable, displayRecovering)
+    end
+    RefreshDisplay(frame.MIUF_DispelHighlight, frame.MIUF_DispelDisplayGate, available, recovering)
 end
 
 availabilityDeferred:SetScript("OnEvent", function(self)
@@ -219,7 +235,7 @@ local function CreateAuraContainer(frame, auraType)
     -- Gate the live display only; the anchor and its mover remain available
     -- for intentional previews and retain their owning cell's visibility.
     local displayGate = CreateFrame("Frame", nil, anchor)
-    displayGate:SetAllPoints(anchor); displayGate:SetShown(IsAuraUnitAvailable(frame))
+    displayGate:SetAllPoints(anchor); displayGate:SetShown(IsAuraDisplayAvailable(frame, auraType, IsAuraUnitAvailable(frame)))
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, displayGate, "CustomAuraContainerTemplate")
     if not ok or not container then print("|cffff5555MIUF: unable to create aura container.|r"); anchor:Hide(); return end
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
@@ -332,6 +348,13 @@ local function AttachFrameAuras(frame)
     -- a live display is hidden. Never replace Blizzard's container scripts.
     local watcher = CreateFrame("Frame", nil, frame)
     ns.RegisterFrameUnitEvent(watcher, "UNIT_AURA", frame)
+    if frame.MIUF_UnitType == "party" then
+        -- Additional opportunities to observe client visibility changes.
+        -- These events are not a guarantee of every visibility transition.
+        for _, event in ipairs({ "UNIT_PHASE", "UNIT_FLAGS", "UNIT_MODEL_CHANGED", "UNIT_PORTRAIT_UPDATE" }) do
+            ns.RegisterFrameUnitEvent(watcher, event, frame)
+        end
+    end
     watcher:RegisterEvent("PLAYER_LEAVING_WORLD")
     watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
     watcher:SetScript("OnEvent", function(_, event)
