@@ -16,7 +16,7 @@ local AURA_TYPES = {
     } },
 }
 local AURA_UNIT_TYPES = { player = true, target = true, focus = true, party = true, targettarget = true, raid = true }
-local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true }
+local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true, raid = true }
 
 local FILTERED_DEBUFF_TYPES = { player = true, party = true, targettarget = true, raid = true }
 local DEBUFF_EXCLUSIONS = {
