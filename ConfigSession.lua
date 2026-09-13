@@ -165,9 +165,87 @@ function ns.ConfigSessionStageResetAll()
     pendingTrackedBuffs={}
 end
 
+-- Sparse field masks contain names only, never references to settings values.
+local function ChangedFields(values, saved, includeRemoved)
+    if type(values)~="table" or type(saved)~="table" then
+        if values~=saved then return true end
+        return nil
+    end
+    local fields={}
+    for key,value in pairs(values) do
+        local changed=ChangedFields(value,saved[key],includeRemoved)
+        if changed then fields[key]=changed end
+    end
+    if includeRemoved then
+        for key in pairs(saved) do if values[key]==nil then fields[key]=true end end
+    end
+    if next(fields) then return fields end
+end
+
+local function BuildChangeSummary()
+    local summary={profileName=ns.GetActiveProfileName(),frameTypes={},categories={},requiresReloadFallback=false,reloadFallbackReasons={}}
+    local function Record(unitType,category,fields)
+        if not fields then return end
+        summary.categories[category]=true
+        local frame=summary.frameTypes[unitType] or {}
+        summary.frameTypes[unitType]=frame
+        frame[category]=fields
+    end
+    local function Fallback(reason,unitType,auraType)
+        summary.requiresReloadFallback=true
+        summary.reloadFallbackReasons[#summary.reloadFallbackReasons+1]={reason=reason,frameType=unitType,auraType=auraType}
+    end
+    for unitType,values in pairs(pendingFrameSettings) do
+        Record(unitType,"size",ChangedFields(values.size,ns.GetSize(unitType)))
+        if values.powerPercent~=ns.GetPowerPercent(unitType) then Record(unitType,"powerBar",{powerPercent=true}) end
+        Record(unitType,"appearance",ChangedFields(values.appearance,ns.GetAppearance(unitType)))
+    end
+    for unitType,values in pairs(pendingGroupLayouts) do
+        local fields=ChangedFields(values,ns.GetGroupLayout(unitType))
+        Record(unitType,"groupLayout",fields)
+        if unitType=="raid" and fields and fields.legacy40 then Fallback("raidCapacityChanged",unitType) end
+    end
+    for unitType,enabled in pairs(pendingEnabled) do
+        if enabled~=ns.IsFrameTypeEnabled(unitType) then
+            Record(unitType,"enabled",{enabled=true})
+            Fallback("frameEnabledStateChanged",unitType)
+        end
+    end
+    for unitType,auraTypes in pairs(pendingAuraLayouts) do
+        local auras={}
+        for auraType,values in pairs(auraTypes) do
+            local fields=ChangedFields(values,ns.GetAuraLayout(unitType,auraType))
+            if fields then
+                auras[auraType]=fields
+                if fields.iconSize then Fallback("auraIconSizeChanged",unitType,auraType) end
+                if fields.showText then Fallback("auraTextDisplayChanged",unitType,auraType) end
+            end
+        end
+        if next(auras) then Record(unitType,"auras",auras) end
+    end
+    for key,value in pairs(pendingPositions) do
+        local fields=ChangedFields(value,ns.GetPosition(key))
+        if fields then
+            local unitType=key:match("^party%d+$") and "party" or (key:match("^boss%d+$") and "boss" or key)
+            local frame=summary.frameTypes[unitType]
+            local positions=frame and frame.positions or {}
+            positions[key]=fields
+            Record(unitType,"positions",positions)
+        end
+    end
+    if pendingTrackedBuffs then
+        summary.trackedBuffs=ChangedFields(pendingTrackedBuffs,ns.GetTrackedBuffs(),true)
+        if summary.trackedBuffs then
+            for _,unitType in ipairs({"player","target","focus","targettarget","party"}) do Record(unitType,"trackedBuffs",true) end
+        end
+    end
+    return summary
+end
+
 function ns.ConfigSessionCommit()
     EnsureProfile()
     if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return false end
+    local summary=BuildChangeSummary()
     for unitType,values in pairs(pendingFrameSettings) do
         ns.SaveSize(unitType,values.size.width,values.size.height)
         ns.SavePowerPercent(unitType,values.powerPercent)
@@ -180,7 +258,7 @@ function ns.ConfigSessionCommit()
     if pendingTrackedBuffs then ns.SetTrackedBuffs(pendingTrackedBuffs) end
     ns.ConfigSessionClear()
 
-    return true
+    return true,summary
 end
 
 function ns.ConfigSessionGetPosition(key)
