@@ -401,10 +401,26 @@ local function ApplyChanges()
     if not committed then return end
     previewAuraUnitType,previewAuraType=nil,nil
     previewFrameType=nil; applyChangesButton:SetEnabled(false)
-    if not summary.requiresReloadFallback then ns.ApplySavedConfiguration(summary) end
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
-    ns.SetMoversLocked(true)
-    ReloadUI()
+    local ok,liveApplied=pcall(function()
+        local applied=false
+        if not summary.requiresReloadFallback then applied=ns.ApplySavedConfiguration(summary)==true end
+        ns.SetMoversLocked(true)
+        if applied then
+            ns.RefreshConfig()
+            -- RefreshConfig may record a saved-state aura preview; no rollback
+            -- reference should survive successful application.
+            previewAuraUnitType,previewAuraType=nil,nil
+            previewFrameType=nil
+        end
+        return applied
+    end)
+    if not ok then
+        print("|cffff5555MIUF: configuration refresh failed; saved changes will be applied by reloading. "..tostring(liveApplied).."|r")
+    elseif not liveApplied and not summary.requiresReloadFallback then
+        print("|cffff5555MIUF: configuration refresh did not complete; saved changes will be applied by reloading.|r")
+    end
+    if not ok or not liveApplied then ReloadUI() end
 end
 
 local function SelectPage(page)
