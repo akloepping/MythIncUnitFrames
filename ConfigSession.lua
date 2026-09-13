@@ -217,8 +217,6 @@ local function BuildChangeSummary()
             local fields=ChangedFields(values,ns.GetAuraLayout(unitType,auraType))
             if fields then
                 auras[auraType]=fields
-                if fields.iconSize then Fallback("auraIconSizeChanged",unitType,auraType) end
-                if fields.showText then Fallback("auraTextDisplayChanged",unitType,auraType) end
             end
         end
         if next(auras) then Record(unitType,"auras",auras) end

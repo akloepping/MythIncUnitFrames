@@ -142,6 +142,12 @@ local function SetFlowLayout(container, anchorPoint, growthX, growthY)
     end
 end
 
+local function StyleAuraRegions(regions, layout)
+    local size = math.max(8, tonumber(layout.iconSize) or 22)
+    regions.count:SetFont(FONT, math.max(8, math.floor(size * 0.45)), "OUTLINE")
+    if regions.cooldown.SetHideCountdownNumbers then regions.cooldown:SetHideCountdownNumbers(layout.showText == false) end
+end
+
 local function InitializeAuraButton(button, layout)
     local size = math.max(8, tonumber(layout.iconSize) or 22)
     button:SetSize(size, size)
@@ -149,12 +155,13 @@ local function InitializeAuraButton(button, layout)
     icon:SetAllPoints(button); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92); button:SetIcon(icon)
     local cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
     cooldown:SetAllPoints(button); cooldown:SetDrawEdge(false); cooldown:SetDrawBling(false)
-    if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(layout.showText == false) end
-    button:SetDurationCooldown(cooldown)
     local count = button:CreateFontString(nil, "OVERLAY")
-    count:SetFont(FONT, math.max(8, math.floor(size * 0.45)), "OUTLINE")
     count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+    local regions={count=count,cooldown=cooldown}
+    StyleAuraRegions(regions,layout)
+    button:SetDurationCooldown(cooldown)
     button:SetApplicationCount(count, {})
+    return regions
 end
 
 local function PositionAuraAnchor(frame, auraType, previewLayout)
@@ -172,6 +179,11 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
     if not data then return end
     local layout = previewLayout or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
+    -- Every native allocation runs our initialization callback, including
+    -- inactive preallocated buttons. Retain only our display regions, never
+    -- aura data, and restyle all of them so reuse needs no special handling.
+    data.style.iconSize=layout.iconSize; data.style.showText=layout.showText
+    for _,regions in ipairs(data.styleRegions) do StyleAuraRegions(regions,data.style) end
     local size = math.max(8, tonumber(layout.iconSize) or 22)
     local spacing = math.max(0, tonumber(layout.spacing) or 2)
     local width = math.max(size, frame:GetWidth())
@@ -257,12 +269,16 @@ local function CreateAuraContainer(frame, auraType)
     if not ok or not container then print("|cffff5555MIUF: unable to create aura container.|r"); anchor:Hide(); return end
     container:SetPoint(flowAnchor, anchor, flowAnchor, 0, 0)
     local groupKeys = {}
+    local style={iconSize=layout.iconSize,showText=layout.showText}
+    local styleRegions={}
     for _, group in ipairs(typeInfo.groups or {}) do
         local groupOptions = {
             maxFrameCount = maxCount,
             candidateFilters = BuildCandidateFilters(auraType, frame.MIUF_UnitType),
             layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
-            initializeFrame = function(button) InitializeAuraButton(button, layout) end,
+            initializeFrame = function(button)
+                styleRegions[#styleRegions+1]=InitializeAuraButton(button,style)
+            end,
         }
         local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
@@ -272,7 +288,7 @@ local function CreateAuraContainer(frame, auraType)
     local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
     if not unitSet then print("|cffff5555MIUF: aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
     frame.MIUF_Auras = frame.MIUF_Auras or {}
-    frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, displayGate = displayGate, groupKeys = groupKeys }
+    frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, displayGate = displayGate, groupKeys = groupKeys, style=style, styleRegions=styleRegions }
     local previewAnchor = {}
     function previewAnchor:SetHeight(_) end
     function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end
