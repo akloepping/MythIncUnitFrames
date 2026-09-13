@@ -183,8 +183,9 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
         if data.container.SetAuraGroupLayout then
             data.container:SetAuraGroupLayout(groupKey, { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing })
         end
-        if frame.MIUF_UnitType == "raid" and data.container.SetAuraGroupMaxFrameCount then
-            data.container:SetAuraGroupMaxFrameCount(groupKey, math.max(1, tonumber(layout.maxCount) or ns.defaultAuraLayout.raid.debuffs.maxCount))
+        if data.container.SetAuraGroupMaxFrameCount then
+            local defaultCount=frame.MIUF_UnitType == "raid" and ns.defaultAuraLayout.raid.debuffs.maxCount or 6
+            data.container:SetAuraGroupMaxFrameCount(groupKey, math.max(1, tonumber(layout.maxCount) or defaultCount))
         end
         if data.container.SetAuraGroupEnabled then data.container:SetAuraGroupEnabled(groupKey, layout.enabled ~= false) end
     end

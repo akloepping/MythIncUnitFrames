@@ -427,6 +427,22 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     frames[storageKey or unit]=frame; return frame
 end
 
+function ns.ApplySavedFrameSettings(unitType)
+    if InCombatLockdown() then return false end
+    local state=BuildFrameState(unitType)
+    for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
+    return true
+end
+
+function ns.ApplySavedFramePositions(positionChanges)
+    if InCombatLockdown() then return false end
+    for _,frame in pairs(frames) do
+        local key=frame.MIUF_PositionKey or frame.MIUF_Unit
+        if positionChanges[key] then ApplyPosition(key,frame) end
+    end
+    return true
+end
+
 function ns.ApplyFrameType(unitType)
     if unitType=="raid" and InCombatLockdown() then return end
     local state=BuildFrameState(unitType); for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end

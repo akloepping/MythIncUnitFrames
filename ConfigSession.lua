@@ -261,6 +261,33 @@ function ns.ConfigSessionCommit()
     return true,summary
 end
 
+function ns.ApplySavedConfiguration(summary)
+    if InCombatLockdown() or not summary or summary.requiresReloadFallback then return false end
+    if summary.profileName~=ns.GetActiveProfileName() then return false end
+    ns.ClearGroupPreviewOverrides()
+    -- Frame state first, then positions/geometry, then attached aura layouts.
+    -- Saved-list and suppression hooks already ran during commit.
+    for unitType,changes in pairs(summary.frameTypes) do
+        if changes.size or changes.powerBar or changes.appearance then ns.ApplySavedFrameSettings(unitType) end
+    end
+    for unitType,changes in pairs(summary.frameTypes) do
+        if changes.positions and unitType~="raid" then ns.ApplySavedFramePositions(changes.positions) end
+        if unitType=="party" or unitType=="boss" or unitType=="raid" then
+            if changes.size or changes.positions or changes.groupLayout then
+                if unitType=="raid" then ns.ApplyRaidLayout(true) else ns.ApplyGroupLayout(unitType) end
+            end
+        end
+    end
+    for unitType,changes in pairs(summary.frameTypes) do
+        if changes.size or changes.powerBar or changes.appearance or changes.positions or changes.groupLayout then
+            ns.ApplyAuraPositions(unitType)
+        elseif changes.auras then
+            for auraType in pairs(changes.auras) do ns.ApplyAuraPositions(unitType,auraType) end
+        end
+    end
+    return true
+end
+
 function ns.ConfigSessionGetPosition(key)
     EnsureProfile()
     return CopyValues(pendingPositions[key] or ns.GetPosition(key))

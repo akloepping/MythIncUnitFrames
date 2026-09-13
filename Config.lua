@@ -397,9 +397,11 @@ function ns.RefreshConfig()
 end
 
 local function ApplyChanges()
-    if not ns.ConfigSessionCommit() then return end
+    local committed,summary=ns.ConfigSessionCommit()
+    if not committed then return end
     previewAuraUnitType,previewAuraType=nil,nil
     previewFrameType=nil; applyChangesButton:SetEnabled(false)
+    if not summary.requiresReloadFallback then ns.ApplySavedConfiguration(summary) end
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
     ns.SetMoversLocked(true)
     ReloadUI()

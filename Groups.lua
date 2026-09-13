@@ -176,6 +176,11 @@ function ns.ResetGroupPreview(unitType)
     ns.PreviewGroupLayout(unitType)
 end
 
+function ns.ClearGroupPreviewOverrides()
+    previewLayouts.party=nil; previewLayouts.boss=nil
+    HideGroupPreview("party"); HideGroupPreview("boss")
+end
+
 function ns.UpdateGroupPreviews(locked)
     if locked or InCombatLockdown() then
         HideGroupPreview("party")
@@ -314,10 +319,10 @@ end
 
 local raidAnchor, raidPreview, raidGhosts = nil, nil, {}
 
-local function PositionRaidAnchor()
+local function PositionRaidAnchor(savedState)
     -- ConfigSession supplies the staged position, or the saved position when
     -- none is staged. Locking visuals must not abandon or commit that position.
-    local position = ns.ConfigSessionGetPosition("raid")
+    local position = savedState and ns.GetPosition("raid") or ns.ConfigSessionGetPosition("raid")
     raidAnchor:ClearAllPoints()
     raidAnchor:SetPoint(position.point,UIParent,position.relativePoint,position.x,position.y)
 end
@@ -335,12 +340,13 @@ function ns.GetRaidAnchor()
     return raidAnchor
 end
 
-function ns.ApplyRaidLayout()
+function ns.ApplyRaidLayout(savedState)
     if InCombatLockdown() or not raidAnchor then return end
-    local size = ns.ConfigSessionGetFrame("raid").size
+    local size = savedState and ns.GetSize("raid") or ns.ConfigSessionGetFrame("raid").size
     raidAnchor:SetSize(size.width,size.height)
-    PositionRaidAnchor()
-    local positions = ns.CalculateRaidGeometry(ns.ConfigSessionGetGroup("raid"),size.width,size.height)
+    PositionRaidAnchor(savedState)
+    local layout = savedState and ns.GetGroupLayout("raid") or ns.ConfigSessionGetGroup("raid")
+    local positions = ns.CalculateRaidGeometry(layout,size.width,size.height)
     for index, offset in ipairs(positions) do
         local frame = ns.frames and ns.frames["raid"..index]
         if frame then
