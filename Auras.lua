@@ -142,7 +142,9 @@ end
 
 local function CreateAuraMover(frame, auraType, anchor)
     anchor:SetMovable(true); anchor:SetClampedToScreen(true)
-    local mover = CreateFrame("Frame", nil, frame.MIUF_UnitType == "raid" and anchor or UIParent, "BackdropTemplate")
+    -- Party and Raid movers inherit their owning cell's runtime visibility.
+    local cellOwned = frame.MIUF_UnitType == "party" or frame.MIUF_UnitType == "raid"
+    local mover = CreateFrame("Frame", nil, cellOwned and anchor or UIParent, "BackdropTemplate")
     mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(anchor)
     mover:SetBackdrop({ bgFile = FLAT, edgeFile = FLAT, edgeSize = 1 })
     mover:SetBackdropColor(0.35, 0.18, 0.65, 0.24); mover:SetBackdropBorderColor(0.75, 0.45, 1, 1)
@@ -318,7 +320,7 @@ function ns.SetAuraMoversLocked(locked)
             for auraType, mover in pairs(frame.MIUF_AuraMovers) do
                 local layout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionGetAura and ns.ConfigSessionGetAura("raid", auraType) or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
                 local previewOff = ns.IsUnitTypePreviewEnabled and not ns.IsUnitTypePreviewEnabled(frame.MIUF_UnitType)
-                if locked or (frame.MIUF_UnitType == "raid" and InCombatLockdown()) or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
+                if locked or ((frame.MIUF_UnitType == "party" or frame.MIUF_UnitType == "raid") and InCombatLockdown()) or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
             end
         end
     end
@@ -331,7 +333,7 @@ function ns.PreviewAuraMover(unitType, auraType, enabled)
         if frame.MIUF_UnitType == unitType and frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType] then
             local mover = frame.MIUF_AuraMovers[auraType]
             local previewOn = not ns.IsUnitTypePreviewEnabled or ns.IsUnitTypePreviewEnabled(unitType)
-            if enabled and previewOn and (unitType ~= "raid" or not InCombatLockdown()) and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
+            if enabled and previewOn and ((unitType ~= "party" and unitType ~= "raid") or not InCombatLockdown()) and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
         end
     end
 end
@@ -352,13 +354,13 @@ function ns.RefreshAuras()
     if InCombatLockdown() then deferred:RegisterEvent("PLAYER_REGEN_ENABLED") else AttachAuras() end
 end
 
-local raidMoverCombatWatcher = CreateFrame("Frame")
-raidMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
-raidMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-raidMoverCombatWatcher:SetScript("OnEvent", function()
+local groupMoverCombatWatcher = CreateFrame("Frame")
+groupMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+groupMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+groupMoverCombatWatcher:SetScript("OnEvent", function()
     for _, frame in pairs(ns.frames or {}) do
-        if frame.MIUF_UnitType == "raid" and frame.MIUF_AuraMovers then
-            frame.MIUF_AuraMovers.debuffs:Hide()
+        if (frame.MIUF_UnitType == "party" or frame.MIUF_UnitType == "raid") and frame.MIUF_AuraMovers then
+            for _, mover in pairs(frame.MIUF_AuraMovers) do mover:Hide() end
         end
     end
     if not InCombatLockdown() then
