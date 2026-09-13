@@ -79,16 +79,37 @@ local function BuildFrameState(unitType, overrides)
     return state
 end
 
-local function UpdateHealth(frame)
+-- UnitIsAFK can be secret during chat lockdown. Guard every flag before
+-- comparing it; unknown flags fall back to the secret-capable health sink.
+local function PublicFlag(api, unit)
+    local value = api(unit)
+    if not canaccessvalue(value) then return nil end
+    return value
+end
+
+local function GetUnitStatus(unit)
+    if PublicFlag(UnitExists, unit) ~= true then return nil end
+    local isPlayer = PublicFlag(UnitIsPlayer, unit) == true
+    if isPlayer and PublicFlag(UnitIsConnected, unit) == false then return "Offline" end
+    if isPlayer and PublicFlag(UnitIsGhost, unit) == true then return "Ghost" end
+    if PublicFlag(UnitIsDead, unit) == true then return "Dead" end
+    if isPlayer and PublicFlag(UnitIsAFK, unit) == true then return "AFK" end
+end
+
+local function UpdateHealth(frame, refreshStatus)
     local unit = ns.GetFrameDisplayUnit(frame)
     if not unit then return end
+    if refreshStatus ~= false then frame.MIUF_StatusText = GetUnitStatus(unit) end
     local value = UnitHealthPercent(unit, true, CurveConstants and CurveConstants.ScaleTo100)
     if value ~= nil then frame.Health:SetValue(value) end
     if frame.HealthText then
         -- SetFormattedText is a secret-capable display sink. Do not inspect or
         -- calculate with the percentage in Lua; let the FontString format it.
         local displayed = false
-        if value ~= nil then
+        if frame.MIUF_StatusText then
+            frame.HealthText:SetText(frame.MIUF_StatusText)
+            displayed = true
+        elseif value ~= nil then
             displayed = pcall(frame.HealthText.SetFormattedText, frame.HealthText, "%.0f%%", value)
         end
         if not displayed then frame.HealthText:SetText("") end
@@ -161,7 +182,7 @@ local function ApplyColors(frame, appearance)
     end
 end
 
-local function ApplyIndicatorLayout(frame, appearance)
+local function ApplyIndicatorLayout(frame, appearance, skipResting)
     if frame.RaidTargetIndicatorFrame then
         local size=math.max(8,tonumber(appearance.raidMarkerSize) or 20)
         frame.RaidTargetIndicatorFrame:SetSize(size,size); frame.RaidTargetIndicatorFrame:ClearAllPoints()
@@ -171,6 +192,22 @@ local function ApplyIndicatorLayout(frame, appearance)
         local size=math.max(8,math.min(48,tonumber(appearance.roleIconSize) or 14))
         frame.GroupRoleIndicator:SetSize(size,size)
         frame.GroupRoleIndicator:ClearAllPoints(); frame.GroupRoleIndicator:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",appearance.roleIconXOffset or 3,appearance.roleIconYOffset or -3)
+    end
+    if frame.RestingIndicator and not skipResting then
+        local size=math.max(8,math.min(48,tonumber(appearance.restingIconSize) or 16))
+        frame.RestingIndicator:SetSize(size,size)
+        frame.RestingIndicator:ClearAllPoints(); frame.RestingIndicator:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",appearance.restingIconXOffset or 3,appearance.restingIconYOffset or -3)
+    end
+end
+
+local function UpdateRestingIndicator(frame)
+    local icon=frame.RestingIndicator; if not icon then return end
+    local resting=IsResting()
+    if frame.MIUF_ShowRestingIcon and canaccessvalue(resting) and resting then
+        icon:Show()
+        if not icon.Animation:IsPlaying() then icon.Animation:Play() end
+    else
+        icon.Animation:Stop(); icon:Hide()
     end
 end
 
@@ -196,21 +233,17 @@ local function UpdateRoleIndicator(frame, appearance)
 end
 
 local function UpdateConnectionState(frame)
-    local text,unit=frame.OfflineText,ns.GetFrameDisplayUnit(frame)
-    if not text or not unit or not UnitExists(unit) then if text then text:Hide() end; return end
-    local connected=UnitIsConnected(unit)
-    if canaccessvalue and not canaccessvalue(connected) then text:Hide(); return end
-    if connected==false then frame.Health:SetStatusBarColor(0.32,0.32,0.32,1); frame.Power:SetStatusBarColor(0.20,0.20,0.20,1); text:Show() else text:Hide() end
+    if frame.MIUF_StatusText=="Offline" then frame.Health:SetStatusBarColor(0.32,0.32,0.32,1); frame.Power:SetStatusBarColor(0.20,0.20,0.20,1) end
 end
 
-local function UpdateFrame(frame)
-    UpdateHealth(frame); UpdatePower(frame); UpdateName(frame); UpdatePortrait(frame)
+local function UpdateFrame(frame, refreshStatus)
+    UpdateHealth(frame,refreshStatus); UpdatePower(frame); UpdateName(frame); UpdatePortrait(frame)
     local appearance=ns.GetAppearance(frame.MIUF_UnitType) or {}
     ApplyColors(frame,appearance)
     -- Raid roster callbacks only update display sinks. Indicator anchors are
     -- established by ApplyFrameState outside combat, never by roster updates.
-    if frame.MIUF_UnitType~="raid" then ApplyIndicatorLayout(frame,appearance) end
-    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame)
+    if frame.MIUF_UnitType~="raid" then ApplyIndicatorLayout(frame,appearance,true) end
+    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
 local function ApplyFrameState(frame,state)
@@ -237,6 +270,8 @@ local function ApplyFrameState(frame,state)
     frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(healthTextWidth)
     local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
+    frame.MIUF_ShowRestingIcon=appearance.showRestingIcon~=false
+    UpdateHealth(frame); UpdateRestingIndicator(frame)
     ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateConnectionState(frame)
 end
 
@@ -307,14 +342,30 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     local power=CreateFrame("StatusBar",nil,frame); power:SetMinMaxValues(0,100); power:SetStatusBarTexture(FLAT); local pbg=power:CreateTexture(nil,"BACKGROUND"); pbg:SetAllPoints(power); pbg:SetColorTexture(0.05,0.05,0.05,1); frame.Power=power
     local nameText=health:CreateFontString(nil,"OVERLAY"); nameText:SetFont(FONT,12,"OUTLINE"); nameText:SetJustifyH("LEFT"); nameText:SetWordWrap(false); frame.NameText=nameText
     local healthText=health:CreateFontString(nil,"OVERLAY"); healthText:SetFont(FONT,11,"OUTLINE"); healthText:SetJustifyH("RIGHT"); frame.HealthText=healthText
-    local offlineText=health:CreateFontString(nil,"OVERLAY"); offlineText:SetFont(FONT,10,"OUTLINE"); offlineText:SetPoint("CENTER"); offlineText:SetText("OFFLINE"); offlineText:Hide(); frame.OfflineText=offlineText
     if unitType~="raid" then local portrait=frame:CreateTexture(nil,"ARTWORK"); portrait:SetTexCoord(0.08,0.92,0.08,0.92); frame.Portrait=portrait end
     local markerFrame=CreateFrame("Frame",nil,frame); markerFrame:SetFrameLevel(frame.Border:GetFrameLevel()+5); markerFrame:SetSize(20,20); markerFrame:SetPoint("CENTER",frame,"TOP",0,2); markerFrame:Hide(); frame.RaidTargetIndicatorFrame=markerFrame
     local marker=markerFrame:CreateTexture(nil,"OVERLAY"); marker:SetAllPoints(markerFrame); marker:SetTexture(RAID_TARGET_TEXTURE); frame.RaidTargetIndicator=marker
     if unitType=="player" or unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
+    if unitType=="player" then
+        -- Mainline PlayerFrame.xml uses this atlas and a 7x6, 42-frame loop.
+        local resting=health:CreateTexture(nil,"OVERLAY"); resting:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook"); resting:Hide()
+        local animation=resting:CreateAnimationGroup(); animation:SetLooping("REPEAT")
+        local flipbook=animation:CreateAnimation("FlipBook"); flipbook:SetDuration(1.5); flipbook:SetOrder(1)
+        flipbook:SetFlipBookRows(7); flipbook:SetFlipBookColumns(6); flipbook:SetFlipBookFrames(42)
+        flipbook:SetFlipBookFrameWidth(0); flipbook:SetFlipBookFrameHeight(0)
+        resting.Animation=animation; frame.RestingIndicator=resting
+        frame:RegisterEvent("PLAYER_UPDATE_RESTING")
+    end
 
     ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    ns.RegisterFrameUnitEvent(frame,"UNIT_FLAGS",frame)
+    -- Blizzard's compact frames route AFK/player-flag changes through this
+    -- unit-filtered event as well as UNIT_FLAGS for other status changes.
+    ns.RegisterFrameUnitEvent(frame,"PLAYER_FLAGS_CHANGED",frame)
+    if VEHICLE_DISPLAY_UNITS[unit] then
+        frame:RegisterEvent("PLAYER_DEAD"); frame:RegisterEvent("PLAYER_ALIVE"); frame:RegisterEvent("PLAYER_UNGHOST")
+    end
     -- Boss tokens become available or change after initial creation. Unit watch
     -- handles visibility; this event takes the full UpdateFrame path below.
     if unitType=="boss" then frame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT") end
@@ -337,7 +388,9 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
             if GameTooltip:IsOwned(self) then GameTooltip:SetUnit(displayUnit) end
             return
         end
-        if event=="UNIT_HEALTH" or event=="UNIT_MAXHEALTH" then UpdateHealth(self)
+        if event=="UNIT_HEALTH" or event=="UNIT_MAXHEALTH" or event=="UNIT_FLAGS" or event=="PLAYER_FLAGS_CHANGED" then
+            UpdateHealth(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
+        elseif event=="PLAYER_UPDATE_RESTING" then UpdateRestingIndicator(self)
         elseif event=="UNIT_POWER_UPDATE" or event=="UNIT_MAXPOWER" then UpdatePower(self)
         elseif event=="UNIT_DISPLAYPOWER" then UpdatePower(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_NAME_UPDATE" then UpdateName(self)
@@ -360,7 +413,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
             totElapsed=totElapsed+elapsed
             if totElapsed<0.10 then return end
             totElapsed=0
-            if UnitExists("target") and UnitExists("targettarget") then UpdateFrame(self) end
+            if UnitExists("target") and UnitExists("targettarget") then UpdateFrame(self,false) end
         end)
     end
 

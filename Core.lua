@@ -82,6 +82,11 @@ for unitType in pairs(defaultSizes) do
     end
 end
 
+defaultAppearance.player.showRestingIcon = true
+defaultAppearance.player.restingIconXOffset = 3
+defaultAppearance.player.restingIconYOffset = -3
+defaultAppearance.player.restingIconSize = 16
+
 local function CopyTable(source)
     local result = {}
     for key, value in pairs(source or {}) do

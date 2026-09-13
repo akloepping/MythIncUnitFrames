@@ -19,6 +19,7 @@ local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
+local restingControls = {}
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
@@ -122,6 +123,10 @@ local function PreviewFrameSliders()
     working.roleIconXOffset=roleX; working.roleIconYOffset=roleY
     working.roleIconSize=Round(roleSizeSlider:GetValue())
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
+    if selectedType=="player" then
+        working.restingIconXOffset=Round(restingControls.X:GetValue()); working.restingIconYOffset=Round(restingControls.Y:GetValue())
+        working.restingIconSize=Round(restingControls.Size:GetValue())
+    end
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
     ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
@@ -244,6 +249,8 @@ local function RefreshFrameControls()
     roleIconButton:SetShown(roleAvailable); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
     roleXSlider:SetShown(roleAvailable); roleXSlider.ValueBox:SetShown(roleAvailable); roleYSlider:SetShown(roleAvailable); roleYSlider.ValueBox:SetShown(roleAvailable)
     roleSizeSlider:SetShown(roleAvailable); roleSizeSlider.ValueBox:SetShown(roleAvailable)
+    restingControls.Panel:SetShown(selectedType=="player")
+    restingControls.Button:SetText("Resting: "..(working.showRestingIcon~=false and "On" or "Off"))
     raidMarkerButton:SetText("Raid Marker: "..(working.showRaidMarker~=false and "On" or "Off"))
     textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
@@ -368,6 +375,10 @@ function ns.RefreshConfig()
         nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
         roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
         roleSizeSlider:SetValue(working.roleIconSize or 14)
+        if selectedType=="player" then
+            restingControls.X:SetValue(working.restingIconXOffset or 3); restingControls.Y:SetValue(working.restingIconYOffset or -3)
+            restingControls.Size:SetValue(working.restingIconSize or 16)
+        end
         raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
         RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
     elseif selectedPage=="auras" then
@@ -519,6 +530,13 @@ local function CreateFramesPage()
     raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Panel=MakeSection(framesPage,"Player Indicators",345,120); restingControls.Panel:SetPoint("TOPLEFT",365,-575)
+    restingControls.Button=MakeButton(restingControls.Panel,"Resting: On",145,24); restingControls.Button:SetPoint("TOPLEFT",10,-28)
+    restingControls.Button:SetScript("OnClick",function() working.showRestingIcon=working.showRestingIcon==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    restingControls.X=MakeSlider(restingControls.Panel,"RestingIconXOffset","Resting X",-100,100,1,85); restingControls.X:SetPoint("TOPLEFT",10,-75); restingControls.X:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Y=MakeSlider(restingControls.Panel,"RestingIconYOffset","Resting Y",-100,100,1,85); restingControls.Y:SetPoint("TOPLEFT",120,-75); restingControls.Y:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Size=MakeSlider(restingControls.Panel,"RestingIconSize","Resting Size",8,48,1,85); restingControls.Size:SetPoint("TOPLEFT",230,-75); restingControls.Size:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Panel:Hide()
 
     local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); if locked then ns.ShowConfigForPendingFrameChanges() end; ns.RefreshConfig() end end)
