@@ -103,6 +103,22 @@ local function BuildCandidateFilters(auraType, unitType)
     return { includeSpellIDs = includeSpellIDs }
 end
 
+local function RefreshTrackedBuffCandidates()
+    -- Read the active saved list at execution time, never the staged list.
+    -- Blizzard securely delegates this setter and schedules its own rebuild;
+    -- it does not require changing protected visibility or unit attributes.
+    for _, frame in pairs(ns.frames or {}) do
+        local data = frame.MIUF_Auras and frame.MIUF_Auras.buffs
+        if data then
+            data.container:SetAuraGroupCandidateFilters("buffs", BuildCandidateFilters("buffs", frame.MIUF_UnitType))
+        end
+    end
+end
+
+hooksecurefunc(ns, "SetTrackedBuffs", RefreshTrackedBuffCandidates)
+hooksecurefunc(ns, "SetActiveProfile", RefreshTrackedBuffCandidates)
+hooksecurefunc(ns, "ResetAllSettings", RefreshTrackedBuffCandidates)
+
 local function GetAnchor(layout)
     local anchor = layout.anchor == "BOTTOM" and "BOTTOM" or "TOP"
     local growth = layout.growth == "LEFT" and "LEFT" or "RIGHT"
