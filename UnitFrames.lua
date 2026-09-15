@@ -330,6 +330,7 @@ local function CreateMover(frame,labelText,positionKey)
 end
 
 local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,storageKey)
+    if frames[storageKey or unit] then return frames[storageKey or unit] end
     unitType=unitType or unit; positionKey=positionKey or unit
     local size=ns.GetSize(unitType); local frame=CreateFrame("Button",name,UIParent,"SecureUnitButtonTemplate")
     frame.MIUF_Unit=unit; frame.MIUF_UnitType=unitType; frame.MIUF_PositionKey=positionKey; frame.__unit=unit
@@ -457,6 +458,7 @@ function ns.PreviewFrameType(unitType,overrides)
 end
 function ns.PreviewFrameSize(unitType,width,height) ns.PreviewFrameType(unitType,{size={width=width,height=height}}) end
 function ns.IsUnitTypePreviewEnabled(unitType) return previewEnabled[unitType]~=false end
+function ns.ClearEnabledPreviews() previewEnabled={} end
 
 function ns.SetFrameMoversLocked(locked)
     for _,frame in pairs(frames) do
@@ -472,9 +474,8 @@ function ns.PreviewUnitTypeMovers(unitType,enabled) previewEnabled[unitType]=ena
 function ns.SetMoversLocked(locked) ns.SetFrameMoversLocked(locked); if ns.SetAuraMoversLocked then ns.SetAuraMoversLocked(locked) end end
 function ns.ResetLayout() for _,frame in pairs(frames) do ApplyPosition(frame.MIUF_PositionKey or frame.MIUF_Unit,frame) end; for unitType in pairs(ns.defaultSizes) do ns.ApplyFrameType(unitType) end; ns.SetFrameMoversLocked(true) end
 
-local spawned=false
 function ns.SpawnAllFrames()
-    if spawned or InCombatLockdown() then return end; spawned=true
+    if InCombatLockdown() then return end
     if ns.IsFrameTypeEnabled("player") then CreateUnitFrame("player","MIUF_Player") end
     if ns.IsFrameTypeEnabled("target") then CreateUnitFrame("target","MIUF_Target") end
     if ns.IsFrameTypeEnabled("focus") then CreateUnitFrame("focus","MIUF_Focus") end
@@ -495,6 +496,41 @@ function ns.SpawnAllFrames()
         ns.ApplyRaidLayout()
     end
     if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
+end
+
+-- Retain secure identities, event subscriptions and attachments across cycles.
+-- Only visibility ownership changes; creation goes through the complete spawn
+-- wrapper chain (click casting, castbars and auras) before activation.
+function ns.ApplySavedEnabledStates()
+    if InCombatLockdown() then return false end
+    ns.SpawnAllFrames()
+    for _,frame in pairs(frames) do
+        local unitType,unit=frame.MIUF_UnitType,frame.MIUF_Unit
+        local enabled=ns.IsFrameTypeEnabled(unitType)
+        UnregisterUnitWatch(frame)
+        if unitType=="party" and unit:match("^party%d+$") then
+            UnregisterStateDriver(frame,"visibility")
+        end
+        if enabled then
+            ApplyFrameState(frame,BuildFrameState(unitType))
+            if unitType~="raid" then ApplyPosition(frame.MIUF_PositionKey,frame) end
+            UpdateFrame(frame)
+            if unitType=="party" then
+                if unit~="player" then
+                    RegisterStateDriver(frame,"visibility",string.format("[group:raid] hide; [group:party,@%s,exists] show; hide",unit))
+                end
+            else RegisterUnitWatch(frame) end
+            if ns.UpdateFrameCastbar then ns.UpdateFrameCastbar(frame) end
+        else
+            frame:Hide()
+        end
+        if ns.UpdateFrameAuraUnit then ns.UpdateFrameAuraUnit(frame) end
+    end
+    ns.ApplyPartyLayout()
+    ns.ApplyBossLayout()
+    ns.ApplyRaidLayout(true)
+    ns.SetMoversLocked(ns.AreFrameMoversLocked())
+    return true
 end
 
 local rangeWatcher=CreateFrame("Frame"); local rangeElapsed=0

@@ -10,7 +10,9 @@ _G.ClickCastFrames = _G.ClickCastFrames or {}
 
 local function RegisterClickCastFrame(frame)
     if not frame or not frame.GetName or not frame:GetName() then return end
+    if frame.MIUF_ClickCastRegistered then return end
     _G.ClickCastFrames[frame] = true
+    frame.MIUF_ClickCastRegistered = true
 end
 
 local oldSpawnAllFrames = ns.SpawnAllFrames

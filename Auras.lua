@@ -22,6 +22,7 @@ local availabilityDeferred = CreateFrame("Frame")
 local pendingAvailability = {}
 
 local function IsAuraUnitAvailable(frame)
+    if not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) then return false end
     -- These checks prove disconnection/missing tokens only. Neither healing
     -- range nor world visibility reliably describes access to cached auras;
     -- leave connected, existing distant units to Blizzard's aura updates.

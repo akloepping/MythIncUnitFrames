@@ -197,7 +197,7 @@ function ns.ApplyPartyLayout()
     if not layout then return end
 
     local partyPlayer = ns.frames.partyplayer
-    if not IsInGroup() or IsInRaid() then
+    if not ns.IsFrameTypeEnabled("party") or not IsInGroup() or IsInRaid() then
         if partyPlayer then partyPlayer:Hide() end
         ns.partyFrameMoverOwner = AnchorGroupFrames(ns.frames.party1 and { ns.frames.party1 } or {}, layout, "party1")
         ns.partyAuraMoverOwner = nil

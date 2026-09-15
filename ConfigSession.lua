@@ -8,6 +8,7 @@ local hasPendingChanges = false
 local sessionProfile
 
 function ns.ConfigSessionClear()
+    if ns.ClearEnabledPreviews then ns.ClearEnabledPreviews() end
     pendingEnabled={}; pendingAuraLayouts={}; pendingFrameSettings={}; pendingGroupLayouts={}
     pendingPositions={}; pendingTrackedBuffs=nil; hasPendingChanges=false; sessionProfile=nil
 end
@@ -208,7 +209,6 @@ local function BuildChangeSummary()
     for unitType,enabled in pairs(pendingEnabled) do
         if enabled~=ns.IsFrameTypeEnabled(unitType) then
             Record(unitType,"enabled",{enabled=true})
-            Fallback("frameEnabledStateChanged",unitType)
         end
     end
     for unitType,auraTypes in pairs(pendingAuraLayouts) do
@@ -263,6 +263,7 @@ function ns.ApplySavedConfiguration(summary)
     if InCombatLockdown() or not summary or summary.requiresReloadFallback then return false end
     if summary.profileName~=ns.GetActiveProfileName() then return false end
     ns.ClearGroupPreviewOverrides()
+    if summary.categories and summary.categories.enabled and ns.ApplySavedEnabledStates()~=true then return false end
     -- Frame state first, then positions/geometry, then attached aura layouts.
     -- Saved-list and suppression hooks already ran during commit.
     for unitType,changes in pairs(summary.frameTypes) do
@@ -277,7 +278,7 @@ function ns.ApplySavedConfiguration(summary)
         end
     end
     for unitType,changes in pairs(summary.frameTypes) do
-        if changes.size or changes.powerBar or changes.appearance or changes.positions or changes.groupLayout then
+        if changes.enabled or changes.size or changes.powerBar or changes.appearance or changes.positions or changes.groupLayout then
             ns.ApplyAuraPositions(unitType)
         elseif changes.auras then
             for auraType in pairs(changes.auras) do ns.ApplyAuraPositions(unitType,auraType) end

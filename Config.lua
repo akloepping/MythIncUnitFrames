@@ -499,6 +499,7 @@ local function CreateFramesPage()
         if InCombatLockdown() then return end
         ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
         ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
+        ns.PreviewUnitTypeMovers("raid",ns.IsFrameTypeEnabled("raid"))
         ns.ConfigSessionStageGroup("raid",ns.GetGroupLayout("raid"))
         ns.ConfigSessionStagePosition("raid",ns.GetPosition("raid"))
         ns.ConfigSessionStageAura("raid","debuffs",ns.GetAuraLayout("raid","debuffs"))
