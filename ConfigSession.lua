@@ -292,6 +292,62 @@ function ns.ConfigSessionGetPosition(key)
     return CopyValues(pendingPositions[key] or ns.GetPosition(key))
 end
 
+-- Stop only the requested scope for the Raid-only control, or all movers for
+-- general Revert. Late mouse releases must not stage discarded coordinates.
+function ns.StopConfigurationMovers(unitType)
+    if InCombatLockdown() then return false end
+    local function StopMover(owner,mover)
+        if not mover then return end
+        owner:StopMovingOrSizing(); mover:StopMovingOrSizing()
+        mover:ClearAllPoints(); mover:SetAllPoints(owner)
+        mover.MIUF_RevertedDrag=true
+        local resize=mover.MIUF_ResizeHandle
+        if resize then resize:SetScript("OnUpdate",nil); resize.MIUF_ResizeState=nil end
+    end
+    for _,frame in pairs(ns.frames or {}) do
+        if not unitType or frame.MIUF_UnitType==unitType then
+            StopMover(frame,frame.MIUF_Mover)
+            for auraType,mover in pairs(frame.MIUF_AuraMovers or {}) do
+                StopMover(frame.MIUF_Auras[auraType].anchor,mover)
+            end
+        end
+    end
+    if (not unitType or unitType=="raid") and ns.raidFrameMoverOwner then
+        StopMover(ns.raidFrameMoverOwner,ns.raidFrameMoverOwner.MIUF_Mover)
+    end
+    return true
+end
+
+function ns.ConfigSessionRevert()
+    if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return false end
+    -- Keep the session recoverable if a saved-state restoration fails. No
+    -- setters, enabled lifecycle, capacity rebuild or reload belong to Revert.
+    local pending={pendingEnabled,pendingAuraLayouts,pendingFrameSettings,pendingGroupLayouts,
+        pendingPositions,pendingTrackedBuffs,hasPendingChanges,sessionProfile}
+    local summary={profileName=ns.GetActiveProfileName(),frameTypes={}}
+    for unitType in pairs(ns.defaultSizes) do
+        summary.frameTypes[unitType]={size=true,appearance=true,powerBar=true,groupLayout=true,positions={}}
+    end
+    for key in pairs(ns.defaultPositions) do
+        local unitType=key:match("^party%d+$") and "party" or (key:match("^boss%d+$") and "boss" or key)
+        summary.frameTypes[unitType].positions[key]=true
+    end
+    local ok,result=pcall(function()
+        if not ns.StopConfigurationMovers() then return false end
+        ns.ConfigSessionClear()
+        if ns.ApplySavedConfiguration(summary)~=true then return false end
+        ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
+        ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
+        return true
+    end)
+    if not ok or not result then
+        pendingEnabled,pendingAuraLayouts,pendingFrameSettings,pendingGroupLayouts,
+            pendingPositions,pendingTrackedBuffs,hasPendingChanges,sessionProfile=unpack(pending,1,8)
+        return false,ok and "Saved-state restoration did not complete." or result
+    end
+    return true
+end
+
 function ns.ConfigSessionStagePosition(key, value)
     EnsureProfile()
     pendingPositions[key] = CopyValues(value)

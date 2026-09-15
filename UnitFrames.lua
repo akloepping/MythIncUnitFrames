@@ -58,9 +58,10 @@ local function ApplyPosition(positionKey, frame)
     frame:SetPoint(p.point, UIParent, p.relativePoint, p.x, p.y)
 end
 
-local function SaveMoverPosition(frame, positionKey)
+local function StageMoverPosition(frame, positionKey)
     local point, _, relativePoint, x, y = frame:GetPoint(1)
-    ns.SavePosition(positionKey, point or "CENTER", relativePoint or point or "CENTER", x or 0, y or 0)
+    ns.ConfigSessionStagePosition(positionKey,{point=point or "CENTER",relativePoint=relativePoint or point or "CENTER",x=x or 0,y=y or 0})
+    if ns.RefreshConfig then ns.RefreshConfig() end
 end
 
 local function BuildFrameState(unitType, overrides)
@@ -297,6 +298,7 @@ local function CreateMover(frame,labelText,positionKey)
     local dragTarget=frame
     mover:SetScript("OnDragStart",function()
         if InCombatLockdown() then return end
+        mover.MIUF_RevertedDrag=nil
         -- Hidden group frames keep their secure visibility; move their independent mover instead.
         local group=frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="boss"
         dragTarget=group and not frame:IsShown() and mover or frame
@@ -304,8 +306,9 @@ local function CreateMover(frame,labelText,positionKey)
     end)
     mover:SetScript("OnDragStop",function()
         dragTarget:StopMovingOrSizing()
+        if mover.MIUF_RevertedDrag then dragTarget=frame; return end
         if not InCombatLockdown() then
-            SaveMoverPosition(dragTarget,positionKey)
+            StageMoverPosition(dragTarget,positionKey)
             if ns.ApplyGroupLayout then ns.ApplyGroupLayout(frame.MIUF_UnitType) end
         end
         if dragTarget==mover then mover:ClearAllPoints(); mover:SetAllPoints(frame) end
@@ -324,7 +327,10 @@ local function CreateMover(frame,labelText,positionKey)
     resize:SetScript("OnMouseUp",function(handle,button)
         if button~="LeftButton" then return end
         local s=handle.MIUF_ResizeState; handle:SetScript("OnUpdate",nil); handle.MIUF_ResizeState=nil; if not s or InCombatLockdown() then return end
-        ns.SaveSize(s.unitType,frame:GetWidth(),frame:GetHeight()); SaveMoverPosition(frame,positionKey); ns.ApplyFrameType(s.unitType); if ns.RefreshConfig then ns.RefreshConfig() end
+        local settings=ns.ConfigSessionGetFrame(s.unitType)
+        settings.size={width=frame:GetWidth(),height=frame:GetHeight()}
+        ns.ConfigSessionStageFrame(s.unitType,settings); StageMoverPosition(frame,positionKey)
+        ns.PreviewFrameType(s.unitType,settings); if ns.RefreshConfig then ns.RefreshConfig() end
     end)
     mover.MIUF_ResizeHandle=resize; mover:Hide(); frame.MIUF_Mover=mover
 end

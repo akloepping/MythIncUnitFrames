@@ -22,6 +22,7 @@ local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSi
 local restingControls = {}
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
+local revertChangesButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
 local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
@@ -214,8 +215,9 @@ end
 MarkPending=function(message)
     local dirty=ns.ConfigSessionIsDirty()
     if applyChangesButton then applyChangesButton:SetEnabled(dirty and not InCombatLockdown()) end
+    if revertChangesButton then revertChangesButton:SetEnabled(dirty and not InCombatLockdown()) end
     if statusText then
-        statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat."
+        statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat."
             or (dirty and ((message or "Changes are pending.").."  Click Apply Changes when ready.")
             or "No pending changes."))
     end
@@ -387,7 +389,7 @@ function ns.RefreshConfig()
     else
         if selectedPage=="profiles" then RefreshProfilesControls() end
     end
-    statusText:SetText(InCombatLockdown() and "Apply Changes is unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
+    statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
     ns.UpdateRaidPreview()
@@ -400,7 +402,7 @@ local function ApplyChanges()
     local committed,summary=ns.ConfigSessionCommit()
     if not committed then return end
     previewAuraUnitType,previewAuraType=nil,nil
-    previewFrameType=nil; applyChangesButton:SetEnabled(false)
+    previewFrameType=nil; applyChangesButton:SetEnabled(false); revertChangesButton:SetEnabled(false)
     ns.SetFrameMoversLockedState(true); ns.SetAuraMoversLockedState(true)
     local ok,liveApplied=pcall(function()
         local applied=false
@@ -421,6 +423,19 @@ local function ApplyChanges()
         print("|cffff5555MIUF: configuration refresh did not complete; saved changes will be applied by reloading.|r")
     end
     if not ok or not liveApplied then ReloadUI() end
+end
+
+local function RevertChanges()
+    if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
+    previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
+    local reverted,err=ns.ConfigSessionRevert()
+    ns.RefreshConfig()
+    if reverted then
+        -- RefreshConfig can record a saved aura preview; discard rollback refs.
+        previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
+    elseif err then
+        print("|cffff5555MIUF: Revert did not complete; pending changes retained. "..tostring(err).."|r")
+    end
 end
 
 local function SelectPage(page)
@@ -463,6 +478,7 @@ local function CreateShell()
         end); frameButtons[unitType]=b; prev=row
     end
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
+    revertChangesButton=MakeButton(config,"Revert Changes",120,28); revertChangesButton:SetPoint("LEFT",applyChangesButton,"RIGHT",8,0); revertChangesButton:SetEnabled(false); revertChangesButton:SetScript("OnClick",RevertChanges)
     local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
         ns.ConfigSessionStageResetAll(); MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
@@ -497,6 +513,7 @@ local function CreateFramesPage()
     local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT")
     revertRaid:SetScript("OnClick",function()
         if InCombatLockdown() then return end
+        ns.StopConfigurationMovers("raid")
         ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
         ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
         ns.PreviewUnitTypeMovers("raid",ns.IsFrameTypeEnabled("raid"))
@@ -505,6 +522,7 @@ local function CreateFramesPage()
         ns.ConfigSessionStageAura("raid","debuffs",ns.GetAuraLayout("raid","debuffs"))
         if ns.PreviewRaidDebuffLayout then ns.PreviewRaidDebuffLayout(ns.GetAuraLayout("raid","debuffs")) end
         RestoreFramePreview("raid")
+        ns.ApplyAuraPositions("raid")
         ns.RefreshConfig()
         ns.UpdateRaidPreview()
     end)

@@ -207,7 +207,7 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
 end
 
 local function SaveDraggedAuraPosition(frame, auraType, anchor)
-    local layout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionGetAura("raid", auraType) or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
+    local layout = ns.ConfigSessionGetAura(frame.MIUF_UnitType, auraType)
     if not layout then return end
     local point, relativePoint = GetAnchor(layout)
     local x, y = 0, 0
@@ -220,13 +220,19 @@ local function SaveDraggedAuraPosition(frame, auraType, anchor)
     elseif point == "TOPRIGHT" and relativePoint == "BOTTOMRIGHT" then
         x = (anchor:GetRight() or 0) - (frame:GetRight() or 0); y = (anchor:GetTop() or 0) - (frame:GetBottom() or 0)
     end
-    local saveLayout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionStageAura or ns.SaveAuraLayout
+    local saveLayout = ns.ConfigSessionStageAura
     saveLayout(frame.MIUF_UnitType, auraType, {
         xOffset = x >= 0 and math.floor(x + 0.5) or math.ceil(x - 0.5),
         yOffset = y >= 0 and math.floor(y + 0.5) or math.ceil(y - 0.5),
     })
     if frame.MIUF_UnitType == "raid" then ns.PreviewRaidDebuffLayout(ns.ConfigSessionGetAura("raid", "debuffs"))
-    else ns.ApplyAuraPositions(frame.MIUF_UnitType, auraType) end
+    else
+        for _,owner in pairs(ns.frames) do
+            if owner.MIUF_UnitType==frame.MIUF_UnitType then
+                PositionAuraAnchor(owner,auraType,ns.ConfigSessionGetAura(frame.MIUF_UnitType,auraType))
+            end
+        end
+    end
     if ns.RefreshConfig then ns.RefreshConfig() end
 end
 
@@ -242,9 +248,10 @@ local function CreateAuraMover(frame, auraType, anchor)
     local label = mover:CreateFontString(nil, "OVERLAY")
     label:SetFont(FONT, 10, "OUTLINE"); label:SetPoint("CENTER")
     label:SetText((frame.MIUF_UnitType or frame.MIUF_Unit) .. " " .. AURA_LABELS[auraType])
-    mover:SetScript("OnDragStart", function() if not InCombatLockdown() then anchor:StartMoving() end end)
+    mover:SetScript("OnDragStart", function() if not InCombatLockdown() then mover.MIUF_RevertedDrag=nil; anchor:StartMoving() end end)
     mover:SetScript("OnDragStop", function()
         anchor:StopMovingOrSizing()
+        if mover.MIUF_RevertedDrag then return end
         if not InCombatLockdown() then SaveDraggedAuraPosition(frame, auraType, anchor) end
     end)
     mover:Hide()

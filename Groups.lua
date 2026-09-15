@@ -12,7 +12,7 @@ local function AnchorGroupFrames(ordered, layout, positionKey)
     if #ordered == 0 then return nil end
 
     local first = ordered[1]
-    local position = ns.GetPosition(positionKey)
+    local position = ns.ConfigSessionGetPosition(positionKey)
     if position then
         first:ClearAllPoints()
         first:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
@@ -379,16 +379,18 @@ function ns.UpdateRaidPreview(locked)
         mover:SetBackdropColor(0.05, 0.35, 0.8, 0.2)
         mover:SetBackdropBorderColor(0.2, 0.65, 1, 1)
         mover:RegisterForDrag("LeftButton")
-        mover:SetScript("OnDragStart", function() if not InCombatLockdown() then raidAnchor:StartMoving() end end)
+        mover:SetScript("OnDragStart", function() if not InCombatLockdown() then mover.MIUF_RevertedDrag=nil; raidAnchor:StartMoving() end end)
         mover:SetScript("OnDragStop", function()
             if InCombatLockdown() then return end
             raidAnchor:StopMovingOrSizing()
+            if mover.MIUF_RevertedDrag then return end
             local point, _, relativePoint, x, y = raidAnchor:GetPoint(1)
             ns.ConfigSessionStagePosition("raid", { point = point, relativePoint = relativePoint, x = x, y = y })
             if ns.RefreshConfig then ns.RefreshConfig() end
         end)
         raidAnchor.MIUF_Mover = mover
         local resize=ns.CreateMoverResizeHandle(mover)
+        mover.MIUF_ResizeHandle=resize
         resize:SetScript("OnMouseDown",function(handle,button)
             if button~="LeftButton" or InCombatLockdown() or ns.AreFrameMoversLocked() then return end
             local left,top=raidAnchor:GetLeft(),raidAnchor:GetTop()
