@@ -7,6 +7,7 @@ local previewFrames = { party = {}, boss = {} }
 local partyUnits = { "party1", "party2", "party3", "party4" }
 local partyOrdered = {}
 local singleFrame = {}
+local raidGroupCounts = {}
 
 local PREVIEW_BG = "Interface\\Buttons\\WHITE8x8"
 local PREVIEW_FONT = "Fonts\\FRIZQT__.TTF"
@@ -299,6 +300,7 @@ watcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then watcher:UnregisterEvent("PLAYER_REGEN_ENABLED") end
     layoutPending = false
     ns.ApplyPartyLayout()
+    ns.ApplyRaidLayout(true)
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
 -- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
@@ -357,9 +359,21 @@ function ns.ApplyRaidLayout(savedState)
     PositionRaidAnchor(savedState)
     local layout = savedState and ns.GetGroupLayout("raid") or ns.ConfigSessionGetGroup("raid")
     local positions = ns.CalculateRaidGeometry(layout,size.width,size.height)
-    for index, offset in ipairs(positions) do
+    for group = 1, 8 do raidGroupCounts[group] = 0 end
+    for index, defaultOffset in ipairs(positions) do
         local frame = ns.frames and ns.frames["raid"..index]
         if frame then
+            -- raidN is a roster index, not a subgroup slot. Place each token in
+            -- its real raid subgroup while preserving roster order within it.
+            local offset = defaultOffset
+            if IsInRaid() and index <= GetNumGroupMembers() then
+                local _, _, subgroup = GetRaidRosterInfo(index)
+                if canaccessvalue(subgroup) and subgroup and subgroup >= 1 and subgroup <= 8 then
+                    raidGroupCounts[subgroup] = raidGroupCounts[subgroup] + 1
+                    local slot = (subgroup - 1) * 5 + raidGroupCounts[subgroup]
+                    offset = positions[slot] or defaultOffset
+                end
+            end
             frame:SetSize(size.width,size.height)
             frame:ClearAllPoints()
             frame:SetPoint("TOPLEFT",raidAnchor,"TOPLEFT",offset.x,offset.y)

@@ -217,10 +217,28 @@ local function UpdateRaidTarget(frame, appearance)
     if not holder or not icon then return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     local unit=ns.GetFrameDisplayUnit(frame)
-    if appearance.showRaidMarker==false or not unit or not UnitExists(unit) then holder:Hide(); return end
+    if appearance.showRaidMarker==false or not unit or not UnitExists(unit) then
+        frame.MIUF_RaidTargetIndex=nil
+        if holder:IsShown() then holder:Hide() end
+        return
+    end
     local index=GetRaidTargetIndex(unit)
-    if frame.MIUF_UnitType=="raid" and not canaccessvalue(index) then holder:Hide(); return end
-    if index then icon:SetTexture(RAID_TARGET_TEXTURE); SetRaidTargetIconTexture(icon,index); holder:Show() else holder:Hide() end
+    if not canaccessvalue(index) then
+        -- Instance raid indices may be secret. Blizzard's texture helper is the
+        -- supported display sink; do not inspect or calculate with the value.
+        SetRaidTargetIconTexture(icon,index)
+        frame.MIUF_RaidTargetIndex=nil
+        if not holder:IsShown() then holder:Show() end
+    elseif index then
+        if frame.MIUF_RaidTargetIndex~=index then
+            SetRaidTargetIconTexture(icon,index)
+            frame.MIUF_RaidTargetIndex=index
+        end
+        if not holder:IsShown() then holder:Show() end
+    else
+        frame.MIUF_RaidTargetIndex=nil
+        if holder:IsShown() then holder:Hide() end
+    end
 end
 
 local function UpdateRoleIndicator(frame, appearance)
