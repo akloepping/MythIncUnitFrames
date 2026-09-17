@@ -195,6 +195,8 @@ local function MigrateLegacyDatabase(db)
     for _, field in ipairs(PROFILE_FIELDS) do db[field] = nil end
 end
 
+local initializedDatabase
+local initializedCharacterKey
 local function InitializeDatabase()
     if type(MythIncUnitFramesDB) ~= "table" then MythIncUnitFramesDB = {} end
     local db = MythIncUnitFramesDB
@@ -214,16 +216,20 @@ local function InitializeDatabase()
     end
 
     db.version = 18
+    initializedDatabase = db
+    initializedCharacterKey = characterKey
 end
 
 local function ActiveProfile()
-    InitializeDatabase()
+    -- Getters run for health/aura events on every unit. Normalize saved data at
+    -- initialization, not on each read; explicit initialization still repairs it.
+    if initializedDatabase == nil or initializedDatabase ~= MythIncUnitFramesDB then InitializeDatabase() end
     local db = MythIncUnitFramesDB
-    local name = db.profileKeys[GetCharacterKey()] or "Default"
+    local name = db.profileKeys[initializedCharacterKey] or "Default"
     local profile = db.profiles[name]
     if type(profile) ~= "table" then
         name = "Default"
-        db.profileKeys[GetCharacterKey()] = name
+        db.profileKeys[initializedCharacterKey] = name
         profile = db.profiles.Default
     end
     return profile, name
@@ -247,7 +253,7 @@ ns.defaultGroupLayout = defaultGroupLayout
 ns.CopyTable = CopyTable
 ns.InitializeDatabase = InitializeDatabase
 
-function ns.GetCharacterProfileKey() InitializeDatabase(); return GetCharacterKey() end
+function ns.GetCharacterProfileKey() InitializeDatabase(); return initializedCharacterKey end
 function ns.GetActiveProfileName() local _, name = ActiveProfile(); return name end
 function ns.GetProfileNames()
     InitializeDatabase()

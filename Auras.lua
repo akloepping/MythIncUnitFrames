@@ -46,29 +46,34 @@ local function IsAuraDisplayAvailable(frame, auraType, available)
     return true
 end
 
+local function RefreshDisplay(frame, container, gate, displayAvailable, displayRecovering)
+    if not gate then return end
+    -- IsShown checks the gate's own state, including under a hidden owner.
+    -- Stable UNIT_AURA events need neither visibility writes nor deferral.
+    if not displayRecovering and gate:IsShown() == displayAvailable then return end
+    if InCombatLockdown() and gate:IsProtected() then
+        pendingAvailability[frame] = true
+        availabilityDeferred:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    -- UpdateAllAuras is Blizzard's public full-rebuild path. Keep group
+    -- configuration and update subscriptions intact, even while hidden.
+    if displayRecovering then container:UpdateAllAuras() end
+    if gate:IsShown() ~= displayAvailable then gate:SetShown(displayAvailable) end
+end
+
+local EMPTY_AURAS = {}
 function ns.RefreshFrameAuraAvailability(frame, forceRefresh)
     local available = IsAuraUnitAvailable(frame)
     local recovering = available and (frame.MIUF_AurasAvailable ~= true or forceRefresh)
     frame.MIUF_AurasAvailable = available
-    local function RefreshDisplay(container, gate, displayAvailable, displayRecovering)
-        if not gate then return end
-        if InCombatLockdown() and gate:IsProtected() then
-            pendingAvailability[frame] = true
-            availabilityDeferred:RegisterEvent("PLAYER_REGEN_ENABLED")
-            return
-        end
-        -- UpdateAllAuras is Blizzard's public full-rebuild path. Keep group
-        -- configuration and update subscriptions intact, even while hidden.
-        if displayRecovering then container:UpdateAllAuras() end
-        gate:SetShown(displayAvailable)
-    end
-    for auraType, data in pairs(frame.MIUF_Auras or {}) do
+    for auraType, data in pairs(frame.MIUF_Auras or EMPTY_AURAS) do
         local displayAvailable = IsAuraDisplayAvailable(frame, auraType, available)
         local displayRecovering = displayAvailable and (data.available ~= true or forceRefresh)
         data.available = displayAvailable
-        RefreshDisplay(data.container, data.displayGate, displayAvailable, displayRecovering)
+        RefreshDisplay(frame, data.container, data.displayGate, displayAvailable, displayRecovering)
     end
-    RefreshDisplay(frame.MIUF_DispelHighlight, frame.MIUF_DispelDisplayGate, available, recovering)
+    RefreshDisplay(frame, frame.MIUF_DispelHighlight, frame.MIUF_DispelDisplayGate, available, recovering)
 end
 
 availabilityDeferred:SetScript("OnEvent", function(self)

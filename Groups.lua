@@ -4,6 +4,9 @@ local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3, NONE = 4 }
 local layoutPending = false
 local previewLayouts = {}
 local previewFrames = { party = {}, boss = {} }
+local partyUnits = { "party1", "party2", "party3", "party4" }
+local partyOrdered = {}
+local singleFrame = {}
 
 local PREVIEW_BG = "Interface\\Buttons\\WHITE8x8"
 local PREVIEW_FONT = "Fonts\\FRIZQT__.TTF"
@@ -51,6 +54,19 @@ local function GetUnitRank(frame)
     if partyIndex then return tonumber(partyIndex) or 99 end
     if unit == "player" then return 5 end
     return 99
+end
+
+local function ComparePartyFrames(a, b)
+    local roleA, roleB = GetRoleRank(a), GetRoleRank(b)
+    if roleA ~= roleB then return roleA < roleB end
+    return GetUnitRank(a) < GetUnitRank(b)
+end
+
+local function AnchorSingleFrame(frame, layout, positionKey)
+    singleFrame[1] = frame
+    local owner = AnchorGroupFrames(singleFrame, layout, positionKey)
+    singleFrame[1] = nil
+    return owner
 end
 
 local function CreatePreviewFrame(unitType, index)
@@ -199,7 +215,7 @@ function ns.ApplyPartyLayout()
     local partyPlayer = ns.frames.partyplayer
     if not ns.IsFrameTypeEnabled("party") or not IsInGroup() or IsInRaid() then
         if partyPlayer then partyPlayer:Hide() end
-        ns.partyFrameMoverOwner = AnchorGroupFrames(ns.frames.party1 and { ns.frames.party1 } or {}, layout, "party1")
+        ns.partyFrameMoverOwner = AnchorSingleFrame(ns.frames.party1, layout, "party1")
         ns.partyAuraMoverOwner = nil
         if ns.SetFrameMoversLocked and ns.AreFrameMoversLocked then
             ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
@@ -207,9 +223,10 @@ function ns.ApplyPartyLayout()
         return
     end
 
-    local ordered = {}
+    local ordered = partyOrdered
+    for index = #ordered, 1, -1 do ordered[index] = nil end
     for i = 1, 4 do
-        local unit = "party" .. i
+        local unit = partyUnits[i]
         local frame = ns.frames[unit]
         if frame and UnitExists(unit) then ordered[#ordered + 1] = frame end
     end
@@ -223,14 +240,10 @@ function ns.ApplyPartyLayout()
         end
     end
 
-    table.sort(ordered, function(a, b)
-        local roleA, roleB = GetRoleRank(a), GetRoleRank(b)
-        if roleA ~= roleB then return roleA < roleB end
-        return GetUnitRank(a) < GetUnitRank(b)
-    end)
+    table.sort(ordered, ComparePartyFrames)
 
     local owner = AnchorGroupFrames(ordered, layout, "party1")
-    ns.partyFrameMoverOwner = owner or AnchorGroupFrames(ns.frames.party1 and { ns.frames.party1 } or {}, layout, "party1")
+    ns.partyFrameMoverOwner = owner or AnchorSingleFrame(ns.frames.party1, layout, "party1")
     ns.partyAuraMoverOwner = owner
     if ns.partyAuraMoverOwner and ns.SetAuraMoversLocked and ns.AreAuraMoversLocked then
         ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
@@ -276,17 +289,14 @@ local watcher = CreateFrame("Frame")
 watcher:RegisterEvent("GROUP_ROSTER_UPDATE")
 watcher:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
-watcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 watcher:SetScript("OnEvent", function(_, event)
     if InCombatLockdown() then
         layoutPending = true
+        watcher:RegisterEvent("PLAYER_REGEN_ENABLED")
         ns.UpdateGroupPreviews(true)
         return
     end
-    if event == "PLAYER_REGEN_ENABLED" and not layoutPending then
-        if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
-        return
-    end
+    if event == "PLAYER_REGEN_ENABLED" then watcher:UnregisterEvent("PLAYER_REGEN_ENABLED") end
     layoutPending = false
     ns.ApplyPartyLayout()
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end

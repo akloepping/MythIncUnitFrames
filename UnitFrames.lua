@@ -5,7 +5,7 @@ ns.UnitFramesLoaded = true
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local RAID_TARGET_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
-local frames, previewEnabled = {}, {}
+local frames, previewEnabled, rangeFrames = {}, {}, {}
 ns.frames = frames
 
 -- Match SecureButton_GetModifiedUnit's player/pet swap under toggleForVehicle.
@@ -241,9 +241,8 @@ local function UpdateFrame(frame, refreshStatus)
     UpdateHealth(frame,refreshStatus); UpdatePower(frame); UpdateName(frame); UpdatePortrait(frame)
     local appearance=ns.GetAppearance(frame.MIUF_UnitType) or {}
     ApplyColors(frame,appearance)
-    -- Raid roster callbacks only update display sinks. Indicator anchors are
-    -- established by ApplyFrameState outside combat, never by roster updates.
-    if frame.MIUF_UnitType~="raid" then ApplyIndicatorLayout(frame,appearance,true) end
+    -- ApplyFrameState owns indicator geometry, including configuration previews.
+    -- Unit events and target-of-target polling only need to refresh content.
     UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
@@ -431,7 +430,9 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     if registerWatch~=false then
         if unitType=="party" and unit:match("^party%d+$") and RegisterStateDriver then RegisterStateDriver(frame,"visibility",string.format("[group:raid] hide; [group:party,@%s,exists] show; hide",unit)) else RegisterUnitWatch(frame) end
     else frame:Hide() end
-    frames[storageKey or unit]=frame; return frame
+    frames[storageKey or unit]=frame
+    if (unitType=="party" or unitType=="raid") and unit~="player" then rangeFrames[#rangeFrames+1]=frame end
+    return frame
 end
 
 function ns.ApplySavedFrameSettings(unitType)
@@ -542,16 +543,22 @@ end
 local rangeWatcher=CreateFrame("Frame"); local rangeElapsed=0
 rangeWatcher:SetScript("OnUpdate",function(_,elapsed)
     rangeElapsed=rangeElapsed+elapsed; if rangeElapsed<0.25 then return end; rangeElapsed=0
-    for _,frame in pairs(frames) do
-        if (frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="raid") and frame.MIUF_Unit~="player" and UnitExists(frame.MIUF_Unit) then
+    for index=1,#rangeFrames do
+        local frame=rangeFrames[index]
+        if frame:IsShown() and UnitExists(frame.MIUF_Unit) then
             local inRange=UnitInRange(frame.MIUF_Unit)
-            if frame.SetAlphaFromBoolean then frame:SetAlphaFromBoolean(inRange,1,0.55) elseif not canaccessvalue or canaccessvalue(inRange) then frame:SetAlpha(inRange and 1 or 0.55) end
-        elseif frame.MIUF_UnitType~="party" or frame.MIUF_Unit=="player" then frame:SetAlpha(1) end
+            if frame.SetAlphaFromBoolean then
+                frame:SetAlphaFromBoolean(inRange,1,0.55)
+            elseif not canaccessvalue or canaccessvalue(inRange) then
+                local alpha=inRange and 1 or 0.55
+                if frame.MIUF_RangeAlpha~=alpha then frame:SetAlpha(alpha); frame.MIUF_RangeAlpha=alpha end
+            end
+        end
     end
 end)
 
 local combatWatcher=CreateFrame("Frame"); combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatWatcher:SetScript("OnEvent",function(_,event)
     if event=="PLAYER_REGEN_DISABLED" then ns.SetFrameMoversLocked(true)
-    else if ns.ApplyPartyLayout then ns.ApplyPartyLayout() end; if ns.ApplyBossLayout then ns.ApplyBossLayout() end; ns.SetFrameMoversLocked(ns.AreFrameMoversLocked()) end
+    else ns.SetFrameMoversLocked(ns.AreFrameMoversLocked()) end
 end)
