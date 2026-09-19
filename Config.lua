@@ -19,11 +19,13 @@ local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
+local statusXSlider, statusYSlider, statusSizeSlider
 local restingControls = {}
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local revertChangesButton
 local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
+local readyCheckButton, summonButton, resurrectionButton
 local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
 local frameTab, auraTab, profileTab
@@ -116,6 +118,7 @@ local function PreviewFrameSliders()
     local roleX,roleY=Round(roleXSlider:GetValue()),Round(roleYSlider:GetValue())
     local raidX,raidY=Round(raidXSlider:GetValue()),Round(raidYSlider:GetValue())
     local raidSize=Round(raidSizeSlider:GetValue())
+    local statusX,statusY=Round(statusXSlider:GetValue()),Round(statusYSlider:GetValue())
 
     working.fontSize=fontSize; working.portraitPercent=portraitPercent
     working.backgroundOpacity=backgroundOpacity; working.borderOpacity=borderOpacity
@@ -124,6 +127,7 @@ local function PreviewFrameSliders()
     working.roleIconXOffset=roleX; working.roleIconYOffset=roleY
     working.roleIconSize=Round(roleSizeSlider:GetValue())
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
+    working.statusIconXOffset=statusX; working.statusIconYOffset=statusY; working.statusIconSize=Round(statusSizeSlider:GetValue())
     if selectedType=="player" then
         working.restingIconXOffset=Round(restingControls.X:GetValue()); working.restingIconYOffset=Round(restingControls.Y:GetValue())
         working.restingIconSize=Round(restingControls.Size:GetValue())
@@ -254,6 +258,9 @@ local function RefreshFrameControls()
     restingControls.Panel:SetShown(selectedType=="player")
     restingControls.Button:SetText("Resting: "..(working.showRestingIcon~=false and "On" or "Off"))
     raidMarkerButton:SetText("Raid Marker: "..(working.showRaidMarker~=false and "On" or "Off"))
+    readyCheckButton:SetText("Ready Check: "..(working.showReadyCheck~=false and "On" or "Off"))
+    summonButton:SetText("Summon: "..(working.showIncomingSummon~=false and "On" or "Off"))
+    resurrectionButton:SetText("Resurrection: "..(working.showIncomingResurrection~=false and "On" or "Off"))
     textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
     powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
 end
@@ -357,10 +364,7 @@ local function RefreshProfilesControls()
     end
 end
 
-function ns.RefreshConfig()
-    if not config or not config:IsShown() then return end
-    refreshing=true; MarkPending(); CopyWorking()
-    for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(ns.ConfigSessionGetEnabled(unitType)) end
+local function RefreshPageSelection()
     if selectedPage=="profiles" then
         selectedLabel:SetText("Profiles")
     else
@@ -370,19 +374,31 @@ function ns.RefreshConfig()
     auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
     framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
     frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
+end
+
+local function RefreshFramesPage()
+    widthSlider:SetLimits(selectedType=="raid" and 50 or 100,600)
+    heightSlider:SetLimits(selectedType=="raid" and 18 or 24,150)
+    local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
+    nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
+    roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
+    roleSizeSlider:SetValue(working.roleIconSize or 14)
+    if selectedType=="player" then
+        restingControls.X:SetValue(working.restingIconXOffset or 3); restingControls.Y:SetValue(working.restingIconYOffset or -3)
+        restingControls.Size:SetValue(working.restingIconSize or 16)
+    end
+    raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
+    statusXSlider:SetValue(working.statusIconXOffset or -4); statusYSlider:SetValue(working.statusIconYOffset or -3); statusSizeSlider:SetValue(working.statusIconSize or 18)
+    RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
+end
+
+function ns.RefreshConfig()
+    if not config or not config:IsShown() then return end
+    refreshing=true; MarkPending(); CopyWorking()
+    for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(ns.ConfigSessionGetEnabled(unitType)) end
+    RefreshPageSelection()
     if selectedPage=="frames" then
-        widthSlider:SetLimits(selectedType=="raid" and 50 or 100,600)
-        heightSlider:SetLimits(selectedType=="raid" and 18 or 24,150)
-        local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
-        nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
-        roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
-        roleSizeSlider:SetValue(working.roleIconSize or 14)
-        if selectedType=="player" then
-            restingControls.X:SetValue(working.restingIconXOffset or 3); restingControls.Y:SetValue(working.restingIconYOffset or -3)
-            restingControls.Size:SetValue(working.restingIconSize or 16)
-        end
-        raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
-        RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
+        RefreshFramesPage()
     elseif selectedPage=="auras" then
         for auraType,button in pairs(auraButtons) do button:SetShown(selectedType~="raid" or auraType=="debuffs"); button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
         RefreshAuraControls(); RefreshTrackedWindow(); auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
@@ -485,18 +501,41 @@ local function CreateShell()
     statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
 
-local function CreateFramesPage()
-    framesPage=CreateFrame("Frame",nil,config); framesPage:SetPoint("TOPLEFT",160,-80); framesPage:SetPoint("BOTTOMRIGHT",-10,50)
-    local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
-    local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
-    local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
-    local indicators=MakeSection(framesPage,"Indicators",330,175); indicators:SetPoint("TOPLEFT",20,-480)
+local function CreateIndicatorControls(parent,indicators)
+    roleIconButton=MakeButton(indicators,"Role Icon: Off",145,24); roleIconButton:SetPoint("TOPLEFT",10,-30); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls(); PreviewFrameSliders() end)
+    raidMarkerButton=MakeButton(indicators,"Raid Marker: On",145,24); raidMarkerButton:SetPoint("LEFT",roleIconButton,"RIGHT",10,0); raidMarkerButton:SetScript("OnClick",function() working.showRaidMarker=working.showRaidMarker==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,85); roleXSlider:SetPoint("TOPLEFT",10,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,85); roleYSlider:SetPoint("TOPLEFT",120,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    roleSizeSlider=MakeSlider(indicators,"RoleIconSize","Role Size",8,48,1,85); roleSizeSlider:SetPoint("TOPLEFT",230,-78); roleSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    readyCheckButton=MakeButton(indicators,"Ready Check: On",100,24); readyCheckButton:SetPoint("TOPLEFT",10,-180); readyCheckButton:SetScript("OnClick",function() working.showReadyCheck=working.showReadyCheck==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    summonButton=MakeButton(indicators,"Summon: On",95,24); summonButton:SetPoint("LEFT",readyCheckButton,"RIGHT",5,0); summonButton:SetScript("OnClick",function() working.showIncomingSummon=working.showIncomingSummon==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    resurrectionButton=MakeButton(indicators,"Resurrection: On",115,24); resurrectionButton:SetPoint("LEFT",summonButton,"RIGHT",5,0); resurrectionButton:SetScript("OnClick",function() working.showIncomingResurrection=working.showIncomingResurrection==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    statusXSlider=MakeSlider(indicators,"StatusIconXOffset","Status X",-150,150,1,85); statusXSlider:SetPoint("TOPLEFT",10,-230); statusXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    statusYSlider=MakeSlider(indicators,"StatusIconYOffset","Status Y",-150,150,1,85); statusYSlider:SetPoint("TOPLEFT",120,-230); statusYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    statusSizeSlider=MakeSlider(indicators,"StatusIconSize","Status Size",8,48,1,85); statusSizeSlider:SetPoint("TOPLEFT",230,-230); statusSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+
+    restingControls.Panel=MakeSection(parent,"Player Indicators",345,120); restingControls.Panel:SetPoint("TOPLEFT",365,-575)
+    restingControls.Button=MakeButton(restingControls.Panel,"Resting: On",145,24); restingControls.Button:SetPoint("TOPLEFT",10,-28)
+    restingControls.Button:SetScript("OnClick",function() working.showRestingIcon=working.showRestingIcon==false; RefreshFrameControls(); PreviewFrameSliders() end)
+    restingControls.X=MakeSlider(restingControls.Panel,"RestingIconXOffset","Resting X",-100,100,1,85); restingControls.X:SetPoint("TOPLEFT",10,-75); restingControls.X:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Y=MakeSlider(restingControls.Panel,"RestingIconYOffset","Resting Y",-100,100,1,85); restingControls.Y:SetPoint("TOPLEFT",120,-75); restingControls.Y:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Size=MakeSlider(restingControls.Panel,"RestingIconSize","Resting Size",8,48,1,85); restingControls.Size:SetPoint("TOPLEFT",230,-75); restingControls.Size:HookScript("OnValueChanged",PreviewFrameSliders)
+    restingControls.Panel:Hide()
+end
+
+local function CreateFrameLayoutControls(layout)
     widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     portraitSlider=MakeSlider(layout,"PortraitPercent","Portrait width (%)",12,40,1,285); portraitSlider:SetPoint("TOPLEFT",20,-222); portraitSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     portraitButton=MakeButton(layout,"Portrait: Off",118,26); portraitButton:SetPoint("TOPLEFT",15,-282); portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls(); PreviewFrameSliders() end)
     sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
+end
+
+local function CreateGroupLayoutControls(layout)
     partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
     local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
     partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); if selectedType~="raid" then groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
@@ -508,8 +547,10 @@ local function CreateFramesPage()
         groupWorking.legacy40=not groupWorking.legacy40
         StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
     end)
+end
 
-    raidPreviewControls=CreateFrame("Frame",nil,framesPage); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-480)
+local function CreateRaidPreviewControls(parent)
+    raidPreviewControls=CreateFrame("Frame",nil,parent); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-480)
     local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT")
     revertRaid:SetScript("OnClick",function()
         if InCombatLockdown() then return end
@@ -526,7 +567,9 @@ local function CreateFramesPage()
         ns.RefreshConfig()
         ns.UpdateRaidPreview()
     end)
+end
 
+local function CreateTextControls(text)
     fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
     fontMenu=CreateFrame("Frame",nil,text,"BackdropTemplate"); fontMenu:SetWidth(190); fontMenu:SetHeight((#ns.Media.fontOrder*24)+8); fontMenu:SetPoint("TOPLEFT",fontButton,"BOTTOMLEFT",0,-2); fontMenu:SetFrameLevel(text:GetFrameLevel()+20)
     fontMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); fontMenu:SetBackdropColor(0.03,0.035,0.045,0.98); fontMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); fontMenu:Hide()
@@ -543,7 +586,9 @@ local function CreateFramesPage()
     healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls(); PreviewFrameSliders() end)
     healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+end
 
+local function CreateAppearanceControls(appearance)
     textureButton=MakeButton(appearance,"Bar Texture",155,26); textureButton:SetPoint("TOPLEFT",15,-34)
     textureMenu=CreateFrame("Frame",nil,appearance,"BackdropTemplate"); textureMenu:SetWidth(155); textureMenu:SetHeight((#ns.Media.textureOrder*28)+8); textureMenu:SetPoint("TOPLEFT",textureButton,"BOTTOMLEFT",0,-2); textureMenu:SetFrameLevel(appearance:GetFrameLevel()+20)
     textureMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); textureMenu:SetBackdropColor(0.03,0.035,0.045,0.98); textureMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); textureMenu:Hide()
@@ -558,22 +603,20 @@ local function CreateFramesPage()
     powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
     bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
     borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+end
 
-    roleIconButton=MakeButton(indicators,"Role Icon: Off",145,24); roleIconButton:SetPoint("TOPLEFT",10,-30); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls(); PreviewFrameSliders() end)
-    raidMarkerButton=MakeButton(indicators,"Raid Marker: On",145,24); raidMarkerButton:SetPoint("LEFT",roleIconButton,"RIGHT",10,0); raidMarkerButton:SetScript("OnClick",function() working.showRaidMarker=working.showRaidMarker==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,85); roleXSlider:SetPoint("TOPLEFT",10,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,85); roleYSlider:SetPoint("TOPLEFT",120,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    roleSizeSlider=MakeSlider(indicators,"RoleIconSize","Role Size",8,48,1,85); roleSizeSlider:SetPoint("TOPLEFT",230,-78); roleSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Panel=MakeSection(framesPage,"Player Indicators",345,120); restingControls.Panel:SetPoint("TOPLEFT",365,-575)
-    restingControls.Button=MakeButton(restingControls.Panel,"Resting: On",145,24); restingControls.Button:SetPoint("TOPLEFT",10,-28)
-    restingControls.Button:SetScript("OnClick",function() working.showRestingIcon=working.showRestingIcon==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    restingControls.X=MakeSlider(restingControls.Panel,"RestingIconXOffset","Resting X",-100,100,1,85); restingControls.X:SetPoint("TOPLEFT",10,-75); restingControls.X:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Y=MakeSlider(restingControls.Panel,"RestingIconYOffset","Resting Y",-100,100,1,85); restingControls.Y:SetPoint("TOPLEFT",120,-75); restingControls.Y:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Size=MakeSlider(restingControls.Panel,"RestingIconSize","Resting Size",8,48,1,85); restingControls.Size:SetPoint("TOPLEFT",230,-75); restingControls.Size:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Panel:Hide()
+local function CreateFramesPage()
+    framesPage=CreateFrame("Frame",nil,config); framesPage:SetPoint("TOPLEFT",160,-80); framesPage:SetPoint("BOTTOMRIGHT",-10,50)
+    local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
+    local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
+    local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
+    local indicators=MakeSection(framesPage,"Indicators",330,285); indicators:SetPoint("TOPLEFT",20,-480)
+    CreateFrameLayoutControls(layout)
+    CreateGroupLayoutControls(layout)
+    CreateRaidPreviewControls(framesPage)
+    CreateTextControls(text)
+    CreateAppearanceControls(appearance)
+    CreateIndicatorControls(framesPage,indicators)
 
     local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
     frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); if locked then ns.ShowConfigForPendingFrameChanges() end; ns.RefreshConfig() end end)

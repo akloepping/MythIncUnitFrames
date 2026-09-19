@@ -69,6 +69,12 @@ for unitType in pairs(defaultSizes) do
         raidMarkerSize = 20,
         raidMarkerXOffset = 0,
         raidMarkerYOffset = 2,
+        showReadyCheck = true,
+        showIncomingSummon = true,
+        showIncomingResurrection = true,
+        statusIconSize = 18,
+        statusIconXOffset = -4,
+        statusIconYOffset = -3,
     }
     defaultAuraLayout[unitType] = {
         buffs = { enabled = true, showText = true, iconSize = 22, maxCount = 6, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 5 },

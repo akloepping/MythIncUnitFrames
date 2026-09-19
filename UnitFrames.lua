@@ -5,8 +5,14 @@ ns.UnitFramesLoaded = true
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local RAID_TARGET_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
+local RESURRECTION_ATLAS = "RaidFrame-Icon-Rez"
+local SUMMON_ATLAS_PREFIX = "RaidFrame-Icon-Summon"
+local STATUS_ICON_TYPES = { "ReadyCheckIndicator", "IncomingSummonIndicator", "IncomingResurrectionIndicator" }
 local frames, previewEnabled, rangeFrames = {}, {}, {}
 ns.frames = frames
+
+local readyCheckDisplayActive = false
+local readyCheckFinishGeneration = 0
 
 -- Match SecureButton_GetModifiedUnit's player/pet swap under toggleForVehicle.
 -- Blizzard uses "vehicle" for the player's visual data (the secure click uses
@@ -199,6 +205,77 @@ local function ApplyIndicatorLayout(frame, appearance, skipResting)
         frame.RestingIndicator:SetSize(size,size)
         frame.RestingIndicator:ClearAllPoints(); frame.RestingIndicator:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",appearance.restingIconXOffset or 3,appearance.restingIconYOffset or -3)
     end
+    local size=math.max(8,math.min(48,tonumber(appearance.statusIconSize) or 18))
+    local previous
+    for _,field in ipairs(STATUS_ICON_TYPES) do
+        local icon=frame[field]
+        if icon then
+            icon:SetSize(size,size); icon:ClearAllPoints()
+            if previous then icon:SetPoint("RIGHT",previous,"LEFT",-2,0)
+            else icon:SetPoint("TOPRIGHT",frame.Health,"TOPRIGHT",appearance.statusIconXOffset or -4,appearance.statusIconYOffset or -3) end
+            previous=icon
+        end
+    end
+end
+
+local function SetIndicatorShown(icon, shown)
+    if shown then if not icon:IsShown() then icon:Show() end
+    elseif icon:IsShown() then icon:Hide() end
+end
+
+local function UpdateReadyCheckIndicator(frame, appearance)
+    local icon=frame.ReadyCheckIndicator; if not icon then return end
+    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
+    local unit=ns.GetFrameDisplayUnit(frame)
+    if appearance.showReadyCheck==false or not readyCheckDisplayActive or not unit or not UnitExists(unit) then
+        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false); return
+    end
+    local status=GetReadyCheckStatus(unit)
+    if not canaccessvalue(status) then frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false); return end
+    if readyCheckDisplayActive=="finished" and status=="waiting" then status="notready" end
+    local atlas=status=="ready" and READY_CHECK_READY_TEXTURE
+        or status=="notready" and READY_CHECK_NOT_READY_TEXTURE
+        or status=="waiting" and READY_CHECK_WAITING_TEXTURE
+    if atlas then
+        if frame.MIUF_ReadyCheckStatus~=status then icon:SetAtlas(atlas,false); frame.MIUF_ReadyCheckStatus=status end
+        SetIndicatorShown(icon,true)
+    else
+        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false)
+    end
+end
+
+local function UpdateIncomingSummonIndicator(frame, appearance)
+    local icon=frame.IncomingSummonIndicator; if not icon then return end
+    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
+    local unit=ns.GetFrameDisplayUnit(frame)
+    if appearance.showIncomingSummon==false or not unit or not UnitExists(unit) then
+        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false); return
+    end
+    local status=C_IncomingSummon.IncomingSummonStatus(unit)
+    if not canaccessvalue(status) then frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false); return end
+    local suffix=status==Enum.SummonStatus.Pending and "Pending"
+        or status==Enum.SummonStatus.Accepted and "Accepted"
+        or status==Enum.SummonStatus.Declined and "Declined"
+    if suffix then
+        if frame.MIUF_IncomingSummonStatus~=status then icon:SetAtlas(SUMMON_ATLAS_PREFIX..suffix,false); frame.MIUF_IncomingSummonStatus=status end
+        SetIndicatorShown(icon,true)
+    else
+        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false)
+    end
+end
+
+local function UpdateIncomingResurrectionIndicator(frame, appearance)
+    local icon=frame.IncomingResurrectionIndicator; if not icon then return end
+    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
+    local unit=ns.GetFrameDisplayUnit(frame)
+    local incoming=appearance.showIncomingResurrection~=false and unit and UnitExists(unit) and UnitHasIncomingResurrection(unit)
+    SetIndicatorShown(icon,canaccessvalue(incoming) and incoming==true)
+end
+
+local function UpdateStatusIndicators(frame, appearance)
+    UpdateReadyCheckIndicator(frame,appearance)
+    UpdateIncomingSummonIndicator(frame,appearance)
+    UpdateIncomingResurrectionIndicator(frame,appearance)
 end
 
 local function UpdateRestingIndicator(frame)
@@ -261,7 +338,7 @@ local function UpdateFrame(frame, refreshStatus)
     ApplyColors(frame,appearance)
     -- ApplyFrameState owns indicator geometry, including configuration previews.
     -- Unit events and target-of-target polling only need to refresh content.
-    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
+    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateStatusIndicators(frame,appearance); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
 local function ApplyFrameState(frame,state)
@@ -290,7 +367,7 @@ local function ApplyFrameState(frame,state)
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     frame.MIUF_ShowRestingIcon=appearance.showRestingIcon~=false
     UpdateHealth(frame); UpdateRestingIndicator(frame)
-    ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateConnectionState(frame)
+    ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateStatusIndicators(frame,appearance); UpdateConnectionState(frame)
 end
 
 function ns.CreateMoverResizeHandle(mover)
@@ -369,6 +446,11 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     if unitType~="raid" then local portrait=frame:CreateTexture(nil,"ARTWORK"); portrait:SetTexCoord(0.08,0.92,0.08,0.92); frame.Portrait=portrait end
     local markerFrame=CreateFrame("Frame",nil,frame); markerFrame:SetFrameLevel(frame.Border:GetFrameLevel()+5); markerFrame:SetSize(20,20); markerFrame:SetPoint("CENTER",frame,"TOP",0,2); markerFrame:Hide(); frame.RaidTargetIndicatorFrame=markerFrame
     local marker=markerFrame:CreateTexture(nil,"OVERLAY"); marker:SetAllPoints(markerFrame); marker:SetTexture(RAID_TARGET_TEXTURE); frame.RaidTargetIndicator=marker
+    if unitType~="pet" and unitType~="boss" then
+        local ready=health:CreateTexture(nil,"OVERLAY"); ready:Hide(); frame.ReadyCheckIndicator=ready
+        local summon=health:CreateTexture(nil,"OVERLAY"); summon:Hide(); frame.IncomingSummonIndicator=summon
+        local resurrection=health:CreateTexture(nil,"OVERLAY"); resurrection:SetAtlas(RESURRECTION_ATLAS,false); resurrection:Hide(); frame.IncomingResurrectionIndicator=resurrection
+    end
     if unitType=="player" or unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
     if unitType=="player" then
         -- Mainline PlayerFrame.xml uses this atlas and a 7x6, 42-frame loop.
@@ -383,6 +465,8 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
 
     ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    if frame.IncomingSummonIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_SUMMON_CHANGED",frame) end
+    if frame.IncomingResurrectionIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_RESURRECT_CHANGED",frame) end
     ns.RegisterFrameUnitEvent(frame,"UNIT_FLAGS",frame)
     -- Blizzard's compact frames route AFK/player-flag changes through this
     -- unit-filtered event as well as UNIT_FLAGS for other status changes.
@@ -420,6 +504,8 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         elseif event=="UNIT_NAME_UPDATE" then UpdateName(self)
         elseif event=="UNIT_PORTRAIT_UPDATE" or event=="UNIT_MODEL_CHANGED" then UpdatePortrait(self)
         elseif event=="RAID_TARGET_UPDATE" then UpdateRaidTarget(self)
+        elseif event=="INCOMING_SUMMON_CHANGED" then UpdateIncomingSummonIndicator(self)
+        elseif event=="INCOMING_RESURRECT_CHANGED" then UpdateIncomingResurrectionIndicator(self)
         elseif event=="GROUP_ROSTER_UPDATE" and (self.MIUF_UnitType=="party" or self.MIUF_UnitType=="raid") then UpdateFrame(self)
         elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_CONNECTION" then UpdateFrame(self)
@@ -452,6 +538,33 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     if (unitType=="party" or unitType=="raid") and unit~="player" then rangeFrames[#rangeFrames+1]=frame end
     return frame
 end
+
+local readyCheckEvents=CreateFrame("Frame")
+readyCheckEvents:RegisterEvent("READY_CHECK")
+readyCheckEvents:RegisterEvent("READY_CHECK_CONFIRM")
+readyCheckEvents:RegisterEvent("READY_CHECK_FINISHED")
+readyCheckEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+readyCheckEvents:SetScript("OnEvent",function(_,event)
+    if event=="READY_CHECK" then
+        readyCheckFinishGeneration=readyCheckFinishGeneration+1
+        readyCheckDisplayActive=true
+    elseif event=="READY_CHECK_FINISHED" then
+        readyCheckFinishGeneration=readyCheckFinishGeneration+1
+        local generation=readyCheckFinishGeneration
+        readyCheckDisplayActive="finished"
+        C_Timer.After(11,function()
+            if generation~=readyCheckFinishGeneration then return end
+            readyCheckDisplayActive=false
+            for _,frame in pairs(frames) do UpdateReadyCheckIndicator(frame) end
+        end)
+    elseif event=="PLAYER_ENTERING_WORLD" then
+        local timeLeft=GetReadyCheckTimeLeft()
+        readyCheckDisplayActive=canaccessvalue(timeLeft) and timeLeft>0
+    elseif not readyCheckDisplayActive then
+        return
+    end
+    for _,frame in pairs(frames) do UpdateReadyCheckIndicator(frame) end
+end)
 
 function ns.ApplySavedFrameSettings(unitType)
     if InCombatLockdown() then return false end
