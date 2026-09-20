@@ -11,6 +11,8 @@ local STATUS_ICON_TYPES = { "ReadyCheckIndicator", "IncomingSummonIndicator", "I
 local frames, previewEnabled, rangeFrames = {}, {}, {}
 ns.frames = frames
 
+-- Configuration-only rendering state; never used as unit/status data.
+local temporaryStatusPreview
 local readyCheckDisplayActive = false
 local readyCheckFinishGeneration = 0
 
@@ -189,7 +191,41 @@ local function ApplyColors(frame, appearance)
     end
 end
 
+local function GetHealthBarRightInset(width, appearance, hasPortrait)
+    if hasPortrait and appearance.showPortrait and appearance.portraitSide=="RIGHT" then
+        return math.max(18,math.floor(width*(appearance.portraitPercent/100)))+4
+    end
+    return 2
+end
+
+local function ApplyStatusIndicatorLayout(frame, appearance)
+    local size=math.max(8,math.min(48,tonumber(appearance.statusIconSize) or 18))
+    local previous
+    for _,field in ipairs(STATUS_ICON_TYPES) do
+        local icon=frame[field]
+        if icon then
+            icon:SetSize(size,size); icon:ClearAllPoints()
+            if previous then icon:SetPoint("RIGHT",previous,"LEFT",-2,0)
+            else icon:SetPoint("TOPRIGHT",(frame.Health or frame.MIUF_StatusPreviewAnchor),"TOPRIGHT",appearance.statusIconXOffset or -4,appearance.statusIconYOffset or -3) end
+            previous=icon
+        end
+    end
+end
+
+local partyLeaderAppearance
+local function ApplyLeaderLayout(frame, appearance)
+    if frame.LeaderIndicator then
+        local size=math.max(8,math.min(48,tonumber(appearance.leaderIconSize) or 12))
+        frame.LeaderIndicator:SetSize(size,size)
+        frame.LeaderIndicator:ClearAllPoints()
+        frame.LeaderIndicator:SetPoint("TOPLEFT",frame,"TOPLEFT",appearance.leaderIconXOffset or -16,appearance.leaderIconYOffset or -2)
+        frame.MIUF_ShowLeaderIcon=appearance.showLeaderIcon==true
+    end
+end
+
 local function ApplyIndicatorLayout(frame, appearance, skipResting)
+    if frame.MIUF_UnitType=="party" then partyLeaderAppearance=appearance end
+    ApplyLeaderLayout(frame,frame.MIUF_UnitType=="player" and (partyLeaderAppearance or ns.GetAppearance("party")) or appearance)
     if frame.RaidTargetIndicatorFrame then
         local size=math.max(8,tonumber(appearance.raidMarkerSize) or 20)
         frame.RaidTargetIndicatorFrame:SetSize(size,size); frame.RaidTargetIndicatorFrame:ClearAllPoints()
@@ -205,29 +241,26 @@ local function ApplyIndicatorLayout(frame, appearance, skipResting)
         frame.RestingIndicator:SetSize(size,size)
         frame.RestingIndicator:ClearAllPoints(); frame.RestingIndicator:SetPoint("TOPLEFT",frame.Health,"TOPLEFT",appearance.restingIconXOffset or 3,appearance.restingIconYOffset or -3)
     end
-    local size=math.max(8,math.min(48,tonumber(appearance.statusIconSize) or 18))
-    local previous
-    for _,field in ipairs(STATUS_ICON_TYPES) do
-        local icon=frame[field]
-        if icon then
-            icon:SetSize(size,size); icon:ClearAllPoints()
-            if previous then icon:SetPoint("RIGHT",previous,"LEFT",-2,0)
-            else icon:SetPoint("TOPRIGHT",frame.Health,"TOPRIGHT",appearance.statusIconXOffset or -4,appearance.statusIconYOffset or -3) end
-            previous=icon
-        end
-    end
+    ApplyStatusIndicatorLayout(frame,appearance)
 end
 
 local function SetIndicatorShown(icon, shown)
+    -- Real event handlers still read/cache real status. Only the rendered Ready
+    -- Check texture is overridden, and its cache is invalidated on cleanup.
+    local preview=temporaryStatusPreview
+    if preview and icon==preview.frame.ReadyCheckIndicator then
+        local unit=not preview.ghost and ns.GetFrameDisplayUnit(preview.frame)
+        shown=preview.frame:IsVisible() and (preview.ghost or (unit and UnitExists(unit)))
+        if shown then icon:SetAtlas(READY_CHECK_READY_TEXTURE,false) end
+    end
     if shown then if not icon:IsShown() then icon:Show() end
     elseif icon:IsShown() then icon:Hide() end
 end
 
-local function UpdateReadyCheckIndicator(frame, appearance)
+local function UpdateReadyCheckIndicator(frame)
     local icon=frame.ReadyCheckIndicator; if not icon then return end
-    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     local unit=ns.GetFrameDisplayUnit(frame)
-    if appearance.showReadyCheck==false or not readyCheckDisplayActive or not unit or not UnitExists(unit) then
+    if not readyCheckDisplayActive or not unit or not UnitExists(unit) then
         frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false); return
     end
     local status=GetReadyCheckStatus(unit)
@@ -244,11 +277,10 @@ local function UpdateReadyCheckIndicator(frame, appearance)
     end
 end
 
-local function UpdateIncomingSummonIndicator(frame, appearance)
+local function UpdateIncomingSummonIndicator(frame)
     local icon=frame.IncomingSummonIndicator; if not icon then return end
-    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     local unit=ns.GetFrameDisplayUnit(frame)
-    if appearance.showIncomingSummon==false or not unit or not UnitExists(unit) then
+    if not unit or not UnitExists(unit) then
         frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false); return
     end
     local status=C_IncomingSummon.IncomingSummonStatus(unit)
@@ -264,18 +296,76 @@ local function UpdateIncomingSummonIndicator(frame, appearance)
     end
 end
 
-local function UpdateIncomingResurrectionIndicator(frame, appearance)
+local function UpdateIncomingResurrectionIndicator(frame)
     local icon=frame.IncomingResurrectionIndicator; if not icon then return end
-    appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
     local unit=ns.GetFrameDisplayUnit(frame)
-    local incoming=appearance.showIncomingResurrection~=false and unit and UnitExists(unit) and UnitHasIncomingResurrection(unit)
+    local incoming=unit and UnitExists(unit) and UnitHasIncomingResurrection(unit)
     SetIndicatorShown(icon,canaccessvalue(incoming) and incoming==true)
 end
 
-local function UpdateStatusIndicators(frame, appearance)
-    UpdateReadyCheckIndicator(frame,appearance)
-    UpdateIncomingSummonIndicator(frame,appearance)
-    UpdateIncomingResurrectionIndicator(frame,appearance)
+local function UpdateStatusIndicators(frame)
+    UpdateReadyCheckIndicator(frame)
+    UpdateIncomingSummonIndicator(frame)
+    UpdateIncomingResurrectionIndicator(frame)
+end
+
+function ns.ClearTemporaryStatusPreview()
+    local preview=temporaryStatusPreview
+    temporaryStatusPreview=nil
+    if not preview then return end
+    if preview.ghost then
+        preview.frame.ReadyCheckIndicator:Hide()
+    else
+        preview.frame.MIUF_ReadyCheckStatus=nil
+        UpdateStatusIndicators(preview.frame)
+    end
+end
+
+local function IsStatusPreviewFrameAvailable(frame)
+    if not frame or not frame.ReadyCheckIndicator or not frame:IsVisible() then return false end
+    local unit=ns.GetFrameDisplayUnit(frame)
+    return unit and UnitExists(unit)
+end
+
+local function GetLiveStatusPreviewFrame(unitType)
+    if unitType=="party" then
+        if IsStatusPreviewFrameAvailable(ns.partyFrameMoverOwner) then return ns.partyFrameMoverOwner end
+        for index=1,4 do
+            local frame=frames["party"..index]
+            if IsStatusPreviewFrameAvailable(frame) then return frame end
+        end
+        if IsStatusPreviewFrameAvailable(frames.partyplayer) then return frames.partyplayer end
+    elseif unitType=="raid" then
+        for index=1,40 do
+            local frame=frames["raid"..index]
+            if IsStatusPreviewFrameAvailable(frame) then return frame end
+        end
+    elseif unitType~="pet" and unitType~="boss" then
+        local frame=frames[unitType]
+        if IsStatusPreviewFrameAvailable(frame) then return frame end
+    end
+end
+
+function ns.UpdateTemporaryStatusPreview(unitType, appearance)
+    local frame=ns.GetGroupStatusPreviewFrame and ns.GetGroupStatusPreviewFrame(unitType)
+    local ghost=frame~=nil
+    if not frame then frame=GetLiveStatusPreviewFrame(unitType) end
+    if temporaryStatusPreview and temporaryStatusPreview.frame~=frame then ns.ClearTemporaryStatusPreview() end
+    if not frame then return end
+    if ghost then
+        -- Extend the existing group ghost, not a separate mock-frame system.
+        if not frame.ReadyCheckIndicator then
+            frame.ReadyCheckIndicator=frame:CreateTexture(nil,"OVERLAY")
+            frame.MIUF_StatusPreviewAnchor=frame:CreateTexture(nil,"BACKGROUND")
+            frame.MIUF_StatusPreviewAnchor:SetSize(1,1); frame.MIUF_StatusPreviewAnchor:Hide()
+        end
+        local inset=GetHealthBarRightInset(frame:GetWidth(),appearance,unitType~="raid")
+        frame.MIUF_StatusPreviewAnchor:ClearAllPoints()
+        frame.MIUF_StatusPreviewAnchor:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-inset,-2)
+    end
+    if not temporaryStatusPreview then temporaryStatusPreview={frame=frame,ghost=ghost} end
+    ApplyStatusIndicatorLayout(frame,appearance)
+    SetIndicatorShown(frame.ReadyCheckIndicator,true)
 end
 
 local function UpdateRestingIndicator(frame)
@@ -328,17 +418,47 @@ local function UpdateRoleIndicator(frame, appearance)
     if atlas then icon:SetAtlas(atlas); icon:Show() else icon:Hide() end
 end
 
+local function UpdateLeaderIndicator(frame)
+    local icon=frame.LeaderIndicator; if not icon then return end
+    -- Leadership belongs to the logical group member, including in a vehicle.
+    local unit=frame.MIUF_Unit
+    local leader=frame.MIUF_ShowLeaderIcon and IsInGroup() and unit and UnitExists(unit) and UnitIsGroupLeader(unit)
+    if frame.MIUF_UnitType=="player" or frame.MIUF_UnitType=="party" then
+        local includePlayer=ns.GetGroupLayout("party").includePlayer
+        local available=ns.IsFrameTypeEnabled("party") and not IsInRaid()
+        if frame.MIUF_UnitType=="player" then
+            available=available and not includePlayer and ns.IsFrameTypeEnabled("player")
+        elseif unit=="player" then
+            available=available and includePlayer
+        end
+        if not available then leader=false end
+    end
+    icon:SetShown(canaccessvalue(leader) and leader==true)
+end
+
+function ns.RefreshPartyLeaderIndicator()
+    local player=frames.player
+    if player then
+        ApplyLeaderLayout(player,partyLeaderAppearance or ns.GetAppearance("party"))
+        UpdateLeaderIndicator(player)
+    end
+    for _,frame in pairs(frames) do
+        if frame.MIUF_UnitType=="party" then UpdateLeaderIndicator(frame) end
+    end
+end
+
 local function UpdateConnectionState(frame)
     if frame.MIUF_StatusText=="Offline" then frame.Health:SetStatusBarColor(0.32,0.32,0.32,1); frame.Power:SetStatusBarColor(0.20,0.20,0.20,1) end
 end
 
 local function UpdateFrame(frame, refreshStatus)
+    UpdateLeaderIndicator(frame)
     UpdateHealth(frame,refreshStatus); UpdatePower(frame); UpdateName(frame); UpdatePortrait(frame)
     local appearance=ns.GetAppearance(frame.MIUF_UnitType) or {}
     ApplyColors(frame,appearance)
     -- ApplyFrameState owns indicator geometry, including configuration previews.
     -- Unit events and target-of-target polling only need to refresh content.
-    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateStatusIndicators(frame,appearance); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
+    UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateStatusIndicators(frame); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
 local function ApplyFrameState(frame,state)
@@ -353,8 +473,8 @@ local function ApplyFrameState(frame,state)
         if appearance.portraitSide=="RIGHT" then frame.Portrait:SetPoint("RIGHT",frame,"RIGHT",-2,0) else frame.Portrait:SetPoint("LEFT",frame,"LEFT",2,0) end
         frame.Portrait:Show()
     elseif frame.Portrait then frame.Portrait:Hide() end
-    local leftInset,rightInset=2,2
-    if showPortrait then if appearance.portraitSide=="RIGHT" then rightInset=portraitWidth+4 else leftInset=portraitWidth+4 end end
+    local leftInset,rightInset=2,GetHealthBarRightInset(width,appearance,frame.Portrait)
+    if showPortrait and appearance.portraitSide~="RIGHT" then leftInset=portraitWidth+4 end
     local powerHeight=math.max(8,math.floor(height*(state.powerPercent/100)))
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
@@ -367,7 +487,8 @@ local function ApplyFrameState(frame,state)
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     frame.MIUF_ShowRestingIcon=appearance.showRestingIcon~=false
     UpdateHealth(frame); UpdateRestingIndicator(frame)
-    ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateStatusIndicators(frame,appearance); UpdateConnectionState(frame)
+    ApplyColors(frame,appearance); ApplyIndicatorLayout(frame,appearance); UpdateLeaderIndicator(frame); UpdateRoleIndicator(frame,appearance); UpdateRaidTarget(frame,appearance); UpdateStatusIndicators(frame); UpdateConnectionState(frame)
+    if frame.MIUF_UnitType=="party" then ns.RefreshPartyLeaderIndicator() end
 end
 
 function ns.CreateMoverResizeHandle(mover)
@@ -464,6 +585,15 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     end
 
     ns.RegisterFrameUnitEvent(frame,"UNIT_HEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXHEALTH",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_POWER_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MAXPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_DISPLAYPOWER",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_NAME_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_FACTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_CONNECTION",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_PORTRAIT_UPDATE",frame); ns.RegisterFrameUnitEvent(frame,"UNIT_MODEL_CHANGED",frame)
+    if unitType=="party" or unitType=="raid" or unitType=="player" then
+        local leaderLayer=CreateFrame("Frame",nil,frame)
+        leaderLayer:SetAllPoints(frame); leaderLayer:SetFrameLevel(frame.Border:GetFrameLevel()+5)
+        local leader=leaderLayer:CreateTexture(nil,"OVERLAY")
+        -- Match Blizzard's current Party frame artwork without overriding our size.
+        leader:SetAtlas("UI-HUD-UnitFrame-Player-Group-LeaderIcon",false); leader:Hide()
+        frame.LeaderIndicator=leader
+        frame:RegisterEvent("PARTY_LEADER_CHANGED")
+    end
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     if frame.IncomingSummonIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_SUMMON_CHANGED",frame) end
     if frame.IncomingResurrectionIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_RESURRECT_CHANGED",frame) end
@@ -498,6 +628,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         end
         if event=="UNIT_HEALTH" or event=="UNIT_MAXHEALTH" or event=="UNIT_FLAGS" or event=="PLAYER_FLAGS_CHANGED" then
             UpdateHealth(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
+        elseif event=="PARTY_LEADER_CHANGED" then UpdateLeaderIndicator(self)
         elseif event=="PLAYER_UPDATE_RESTING" then UpdateRestingIndicator(self)
         elseif event=="UNIT_POWER_UPDATE" or event=="UNIT_MAXPOWER" then UpdatePower(self)
         elseif event=="UNIT_DISPLAYPOWER" then UpdatePower(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
@@ -507,7 +638,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         elseif event=="INCOMING_SUMMON_CHANGED" then UpdateIncomingSummonIndicator(self)
         elseif event=="INCOMING_RESURRECT_CHANGED" then UpdateIncomingResurrectionIndicator(self)
         elseif event=="GROUP_ROSTER_UPDATE" and (self.MIUF_UnitType=="party" or self.MIUF_UnitType=="raid") then UpdateFrame(self)
-        elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
+        elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateLeaderIndicator(self); UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_CONNECTION" then UpdateFrame(self)
         elseif event=="UNIT_FACTION" then ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_TARGET" and self.MIUF_Unit=="targettarget" then UpdateFrame(self)

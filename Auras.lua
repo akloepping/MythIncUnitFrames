@@ -91,13 +91,15 @@ local DEBUFF_EXCLUSIONS = {
     [124255] = true, -- Stagger
 }
 
-local function BuildCandidateFilters(auraType, unitType)
+local function BuildCandidateFilters(auraType, unitType, layout)
     if auraType == "debuffs" and FILTERED_DEBUFF_TYPES[unitType] then
         local excluded = {}
         for spellID in pairs(DEBUFF_EXCLUSIONS) do excluded[spellID] = true end
         return { isFromPlayerOrPlayerPet = false, excludeSpellIDs = excluded }
     end
     if auraType ~= "buffs" then return {} end
+    layout = layout or ns.GetAuraLayout(unitType, "buffs")
+    if layout and layout.filteringEnabled == false then return {} end
     local includeSpellIDs = {}
     local tracked = ns.GetTrackedBuffs and ns.GetTrackedBuffs() or {}
     local count = 0
@@ -109,15 +111,31 @@ local function BuildCandidateFilters(auraType, unitType)
     return { includeSpellIDs = includeSpellIDs }
 end
 
+local function ApplyBuffFiltering(frame, layout, refreshCandidates)
+    local data = frame.MIUF_Auras and frame.MIUF_Auras.buffs
+    if not data then return end
+    layout = layout or ns.GetAuraLayout(frame.MIUF_UnitType, "buffs")
+    local enabled = not layout or layout.filteringEnabled ~= false
+    if data.buffFilteringEnabled == enabled and not refreshCandidates then return end
+    -- Reconfigure the existing native group; keep its pool, unit and events.
+    data.container:SetAuraGroupFilterString("buffs", enabled and "HELPFUL|PLAYER" or "HELPFUL")
+    data.container:SetAuraGroupCandidateFilters("buffs", BuildCandidateFilters("buffs", frame.MIUF_UnitType, layout))
+    data.buffFilteringEnabled = enabled
+end
+
+function ns.PreviewBuffFiltering(unitType, layout)
+    if InCombatLockdown() then return end
+    for _, frame in pairs(ns.frames or {}) do
+        if frame.MIUF_UnitType == unitType then ApplyBuffFiltering(frame, layout) end
+    end
+end
+
 local function RefreshTrackedBuffCandidates()
     -- Read the active saved list at execution time, never the staged list.
     -- Blizzard securely delegates this setter and schedules its own rebuild;
     -- it does not require changing protected visibility or unit attributes.
     for _, frame in pairs(ns.frames or {}) do
-        local data = frame.MIUF_Auras and frame.MIUF_Auras.buffs
-        if data then
-            data.container:SetAuraGroupCandidateFilters("buffs", BuildCandidateFilters("buffs", frame.MIUF_UnitType))
-        end
+        ApplyBuffFiltering(frame, nil, true)
     end
 end
 
@@ -185,6 +203,7 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
     if not data then return end
     local layout = previewLayout or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
     if not layout then return end
+    if auraType == "buffs" then ApplyBuffFiltering(frame, layout) end
     -- Every native allocation runs our initialization callback, including
     -- inactive preallocated buttons. Retain only our display regions, never
     -- aura data, and restyle all of them so reuse needs no special handling.
@@ -287,13 +306,14 @@ local function CreateAuraContainer(frame, auraType)
     for _, group in ipairs(typeInfo.groups or {}) do
         local groupOptions = {
             maxFrameCount = maxCount,
-            candidateFilters = BuildCandidateFilters(auraType, frame.MIUF_UnitType),
+            candidateFilters = BuildCandidateFilters(auraType, frame.MIUF_UnitType, layout),
             layout = { elementWidth = size, elementHeight = size, elementSpacing = spacing, lineSpacing = spacing },
             initializeFrame = function(button)
                 styleRegions[#styleRegions+1]=InitializeAuraButton(button,style)
             end,
         }
-        local added, addError = pcall(container.AddAuraGroup, container, group.key, group.filter, groupOptions)
+        local filter = auraType == "buffs" and layout.filteringEnabled == false and "HELPFUL" or group.filter
+        local added, addError = pcall(container.AddAuraGroup, container, group.key, filter, groupOptions)
         if not added then print("|cffff5555MIUF: " .. auraType .. " group failed: " .. tostring(addError) .. "|r"); anchor:Hide(); return end
         groupKeys[#groupKeys + 1] = group.key
     end
@@ -302,6 +322,7 @@ local function CreateAuraContainer(frame, auraType)
     if not unitSet then print("|cffff5555MIUF: aura unit assignment failed: " .. tostring(unitError) .. "|r"); anchor:Hide(); return end
     frame.MIUF_Auras = frame.MIUF_Auras or {}
     frame.MIUF_Auras[auraType] = { container = container, anchor = anchor, displayGate = displayGate, groupKeys = groupKeys, style=style, styleRegions=styleRegions }
+    if auraType == "buffs" then frame.MIUF_Auras[auraType].buffFilteringEnabled = layout.filteringEnabled ~= false end
     local previewAnchor = {}
     function previewAnchor:SetHeight(_) end
     function previewAnchor:ClearAllPoints() anchor:ClearAllPoints() end

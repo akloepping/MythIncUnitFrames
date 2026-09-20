@@ -221,6 +221,7 @@ function ns.ApplyPartyLayout()
         if ns.SetFrameMoversLocked and ns.AreFrameMoversLocked then
             ns.SetFrameMoversLocked(ns.AreFrameMoversLocked())
         end
+        if ns.RefreshPartyLeaderIndicator then ns.RefreshPartyLeaderIndicator() end
         return
     end
 
@@ -244,6 +245,7 @@ function ns.ApplyPartyLayout()
     table.sort(ordered, ComparePartyFrames)
 
     local owner = AnchorGroupFrames(ordered, layout, "party1")
+    if ns.RefreshPartyLeaderIndicator then ns.RefreshPartyLeaderIndicator() end
     ns.partyFrameMoverOwner = owner or AnchorSingleFrame(ns.frames.party1, layout, "party1")
     ns.partyAuraMoverOwner = owner
     if ns.partyAuraMoverOwner and ns.SetAuraMoversLocked and ns.AreAuraMoversLocked then
@@ -330,6 +332,14 @@ function ns.CalculateRaidGeometry(layout, width, height)
 end
 
 local raidAnchor, raidPreview, raidGhosts = nil, nil, {}
+
+-- Read-only access to one of the existing configuration ghosts.
+function ns.GetGroupStatusPreviewFrame(unitType)
+    local frame
+    if unitType=="party" then frame=previewFrames.party[1]
+    elseif unitType=="raid" then frame=raidGhosts[1] end
+    if frame and frame:IsVisible() then return frame end
+end
 
 local function PositionRaidAnchor(savedState)
     -- ConfigSession supplies the staged position, or the saved position when

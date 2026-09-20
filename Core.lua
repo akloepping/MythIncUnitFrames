@@ -69,9 +69,6 @@ for unitType in pairs(defaultSizes) do
         raidMarkerSize = 20,
         raidMarkerXOffset = 0,
         raidMarkerYOffset = 2,
-        showReadyCheck = true,
-        showIncomingSummon = true,
-        showIncomingResurrection = true,
         statusIconSize = 18,
         statusIconXOffset = -4,
         statusIconYOffset = -3,
@@ -86,6 +83,20 @@ for unitType in pairs(defaultSizes) do
             debuffs = { enabled = true, showText = true, iconSize = 18, maxCount = 2, spacing = 2, anchor = "TOP", growth = "RIGHT", xOffset = 0, yOffset = 2 },
         }
     end
+end
+
+-- Only frame types with normal buffs expose the per-frame filtering switch.
+for _, unitType in ipairs({ "player", "target", "focus", "targettarget", "party" }) do
+    defaultAuraLayout[unitType].buffs.filteringEnabled = unitType ~= "target"
+end
+
+for _, unitType in ipairs({ "party", "raid" }) do
+    local appearance = defaultAppearance[unitType]
+    appearance.showLeaderIcon = unitType == "party"
+    -- Outside the left edge, clear of the role icon and frame text.
+    appearance.leaderIconXOffset = -16
+    appearance.leaderIconYOffset = -2
+    appearance.leaderIconSize = 12
 end
 
 defaultAppearance.player.showRestingIcon = true
@@ -134,6 +145,13 @@ local function NormalizeProfile(profile)
     profile.sizes = FillMissing(profile.sizes, defaultSizes)
     profile.barLayout = FillMissing(profile.barLayout, defaultBarLayout)
     profile.appearance = FillMissing(profile.appearance, defaultAppearance)
+    -- Temporary statuses are automatic; retire the short-lived opt-out keys.
+    for unitType in pairs(defaultAppearance) do
+        local appearance = profile.appearance[unitType]
+        appearance.showReadyCheck = nil
+        appearance.showIncomingSummon = nil
+        appearance.showIncomingResurrection = nil
+    end
     profile.auraLayout = FillMissing(profile.auraLayout, defaultAuraLayout)
     profile.enabled = FillMissing(profile.enabled, defaultEnabled)
     -- Normalize the branch's prototype before deep filling masks its old keys.

@@ -2,6 +2,50 @@ local ADDON_NAME, ns = ...
 
 local MEDIA = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
+local Skin = {
+    background={0.035,0.039,0.040,0.98}, surface={0.070,0.076,0.077,1},
+    border={0.18,0.20,0.20,1}, text={0.86,0.85,0.81,1}, muted={0.56,0.58,0.57,1},
+    accent={0.22,0.43,0.41,1}, selected={0.10,0.23,0.22,1}, hover={0.14,0.29,0.27,1},
+    hoverBorder={0.32,0.54,0.50,1},
+    disabled={0.36,0.38,0.37,1},
+}
+function Skin.Panel(frame, color)
+    frame:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1})
+    frame:SetBackdropColor(unpack(color or Skin.surface)); frame:SetBackdropBorderColor(unpack(Skin.border))
+end
+function Skin.Paint(button)
+    local selected=button.MIUF_Selected
+    local disabled=button.IsEnabled and not button:IsEnabled() and not selected
+    button:SetBackdropColor(unpack(disabled and Skin.background or (button.MIUF_Hover and Skin.hover or (selected and Skin.selected or Skin.surface))))
+    button:SetBackdropBorderColor(unpack(disabled and Skin.border or (button.MIUF_Hover and Skin.hoverBorder or (selected and Skin.accent or Skin.border))))
+    local label=button.MIUF_SkinLabel or button:GetFontString()
+    if label then label:SetTextColor(unpack(disabled and Skin.disabled or Skin.text)) end
+    if button.MIUF_Accent then button.MIUF_Accent:SetShown(selected) end
+end
+function Skin.Button(button)
+    Skin.Panel(button)
+    button:HookScript("OnEnter",function(self) self.MIUF_Hover=true; Skin.Paint(self) end)
+    button:HookScript("OnLeave",function(self) self.MIUF_Hover=nil; Skin.Paint(self) end)
+    button:HookScript("OnEnable",Skin.Paint); button:HookScript("OnDisable",Skin.Paint)
+    function button:SetSelected(selected) self.MIUF_Selected=selected; Skin.Paint(self) end
+    Skin.Paint(button)
+end
+function Skin.Check(check)
+    for _,method in ipairs({"GetNormalTexture","GetPushedTexture","GetDisabledTexture"}) do
+        local texture=check[method] and check[method](check)
+        if texture then texture:SetVertexColor(unpack(Skin.muted)) end
+    end
+    local checked=check.GetCheckedTexture and check:GetCheckedTexture()
+    if checked then checked:SetVertexColor(unpack(Skin.accent)) end
+    local hover=check.GetHighlightTexture and check:GetHighlightTexture()
+    if hover then hover:SetVertexColor(unpack(Skin.accent)) end
+    local disabled=check.GetDisabledCheckedTexture and check:GetDisabledCheckedTexture()
+    if disabled then disabled:SetVertexColor(unpack(Skin.disabled)) end
+end
+function Skin.Edit(box)
+    for _,key in ipairs({"Left","Middle","Right"}) do if box[key] then box[key]:SetVertexColor(unpack(Skin.muted)) end end
+    box:SetTextColor(unpack(Skin.text))
+end
 local FRAME_TYPES = { "player", "target", "focus", "pet", "targettarget", "party", "boss", "raid" }
 local DISPLAY_NAMES = { player="Player", target="Target", focus="Focus", pet="Pet", targettarget="Target of Target", party="Party", boss="Boss", raid="Raid" }
 local AURA_TYPES = { "buffs", "debuffs", "defensives" }
@@ -21,16 +65,28 @@ local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
 local statusXSlider, statusYSlider, statusSizeSlider
 local restingControls = {}
+-- Presentation state only; configuration values stay in ConfigSession.
+local frameUI = { category="Layout", categories={}, units={}, sections={} }
+local FRAME_CATEGORIES = { "Layout", "Text", "Appearance", "Indicators", "Auras" }
+local FRAME_SUPPORT = {
+    portrait={player=true,target=true,focus=true,pet=true,targettarget=true,party=true,boss=true},
+    group={party=true,boss=true,raid=true},
+    role={player=true,party=true,raid=true},
+    leader={party=true,raid=true},
+    resting={player=true},
+    status={player=true,target=true,focus=true,targettarget=true,party=true,raid=true},
+    auras={player=true,target=true,focus=true,targettarget=true,party=true,raid=true},
+}
 local auraSizeSlider, auraCountSlider, auraSpacingSlider, auraXSlider, auraYSlider
 local selectedLabel, statusText, applyChangesButton, frameLockButton, auraLockButton
 local revertChangesButton
-local nameButton, healthTextButton, portraitButton, sideButton, roleIconButton, raidMarkerButton
-local readyCheckButton, summonButton, resurrectionButton
+local nameButton, healthTextButton, portraitButton, sideButton
 local textureButton, textureMenu, healthColorButton, powerColorButton, fontButton, fontMenu
 local auraLabel, auraEnableButton, auraTextButton, auraAnchorButton, auraGrowthButton
-local frameTab, auraTab, profileTab
+local frameTab, profileTab
 local partyLayoutPanel, partyOrientationButton, partyDirectionButton, partySpacingSlider, partyIncludePlayerButton
-local frameButtons, frameEnableChecks, auraButtons = {}, {}, {}
+local auraButtons = {}
+local auraUI = {}
 local buffFilterPanel, seenBuffButtons, trackedBuffButtons = nil, {}, {}
 local manageTrackedButton
 local profileCurrentLabel, profileCharacterLabel, profileNameBox, profileActionStatus
@@ -55,7 +111,9 @@ local function DisplayName(catalog,key,fallback)
 end
 
 local function MakeButton(parent,text,width,height)
-    local b=CreateFrame("Button",nil,parent,"UIPanelButtonTemplate"); b:SetSize(width,height); b:SetText(text); return b
+    local b=CreateFrame("Button",nil,parent,"UIPanelButtonTemplate,BackdropTemplate"); b:SetSize(width,height); b:SetText(text)
+    b:SetNormalTexture(""); b:SetPushedTexture(""); b:SetHighlightTexture(""); b:SetDisabledTexture("")
+    Skin.Button(b); return b
 end
 
 local function MakeSlider(parent,name,label,minValue,maxValue,step,width)
@@ -63,6 +121,11 @@ local function MakeSlider(parent,name,label,minValue,maxValue,step,width)
     slider:SetMinMaxValues(minValue,maxValue); slider:SetValueStep(step); slider:SetObeyStepOnDrag(true); slider:SetWidth(width or 235)
     local text,low,high=_G[slider:GetName().."Text"],_G[slider:GetName().."Low"],_G[slider:GetName().."High"]
     if text then text:SetText(label) end; if low then low:SetText(tostring(minValue)) end; if high then high:SetText(tostring(maxValue)) end
+    if text then text:SetTextColor(unpack(Skin.text)) end
+    if low then low:SetTextColor(unpack(Skin.muted)) end; if high then high:SetTextColor(unpack(Skin.muted)) end
+    if slider.SetBackdropColor then slider:SetBackdropColor(unpack(Skin.surface)); slider:SetBackdropBorderColor(unpack(Skin.border)) end
+    local thumb=slider.GetThumbTexture and slider:GetThumbTexture()
+    if thumb then thumb:SetVertexColor(unpack(Skin.accent)) end
     function slider:SetLimits(minimum, maximum)
         minValue, maxValue = minimum, maximum
         self:SetMinMaxValues(minValue,maxValue)
@@ -70,6 +133,7 @@ local function MakeSlider(parent,name,label,minValue,maxValue,step,width)
         if high then high:SetText(tostring(maxValue)) end
     end
     local box=CreateFrame("EditBox",nil,parent,"InputBoxTemplate"); box:SetSize(52,20); box:SetAutoFocus(false); box:SetJustifyH("CENTER"); box:SetPoint("TOP",slider,"BOTTOM",0,-1); slider.ValueBox=box
+    Skin.Edit(box)
     local function Format(v) return step and step<1 and string.format("%.2f",v) or tostring(Round(v)) end
     local function Clamp(v)
         v=math.max(minValue,math.min(maxValue,v)); if step and step>0 then v=minValue+math.floor(((v-minValue)/step)+0.5)*step end
@@ -86,9 +150,25 @@ end
 
 local function MakeSection(parent,title,width,height)
     local section=CreateFrame("Frame",nil,parent,"BackdropTemplate"); section:SetSize(width,height)
-    section:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); section:SetBackdropColor(0.02,0.025,0.03,0.55); section:SetBackdropBorderColor(0.18,0.22,0.28,0.95)
-    local label=section:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,12,"OUTLINE"); label:SetPoint("TOPLEFT",10,-8); label:SetText(title); label:SetTextColor(0.82,0.88,0.95); section.Title=label
+    Skin.Panel(section)
+    local label=section:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,12,"OUTLINE"); label:SetTextColor(unpack(Skin.text)); label:SetPoint("TOPLEFT",10,-8); label:SetText(title); section.Title=label
     return section
+end
+
+local function ClearStatusIconPreview()
+    local check=frameUI.statusPreview
+    if check then check:SetChecked(false); check:SetScript("OnUpdate",nil) end
+    if ns.ClearTemporaryStatusPreview then ns.ClearTemporaryStatusPreview() end
+end
+
+local function RefreshStatusIconPreview()
+    local check=frameUI.statusPreview
+    if not check or not check:GetChecked() then return end
+    if not config:IsShown() or selectedPage~="frames" or frameUI.category~="Indicators"
+        or not FRAME_SUPPORT.status[selectedType] then
+        ClearStatusIconPreview(); return
+    end
+    ns.UpdateTemporaryStatusPreview(selectedType,working)
 end
 
 local function RestoreFramePreview(unitType)
@@ -126,6 +206,11 @@ local function PreviewFrameSliders()
     working.healthXOffset=healthX; working.healthYOffset=healthY
     working.roleIconXOffset=roleX; working.roleIconYOffset=roleY
     working.roleIconSize=Round(roleSizeSlider:GetValue())
+    if selectedType=="party" or selectedType=="raid" then
+        local leader=frameUI.sections.leader
+        working.leaderIconXOffset=Round(leader.X:GetValue()); working.leaderIconYOffset=Round(leader.Y:GetValue())
+        working.leaderIconSize=Round(leader.Size:GetValue())
+    end
     working.raidMarkerXOffset=raidX; working.raidMarkerYOffset=raidY; working.raidMarkerSize=raidSize
     working.statusIconXOffset=statusX; working.statusIconYOffset=statusY; working.statusIconSize=Round(statusSizeSlider:GetValue())
     if selectedType=="player" then
@@ -148,6 +233,11 @@ local function PreviewFrameSliders()
     PreviewGroupControls({width=width,height=height})
     if selectedType=="raid" then ns.UpdateRaidPreview() end
     previewFrameType=selectedType
+    RefreshStatusIconPreview()
+end
+
+local function IsAurasSelected()
+    return selectedPage=="frames" and frameUI.category=="Auras"
 end
 
 local function GetAuraAnchor(layout)
@@ -163,6 +253,7 @@ end
 
 local function ApplyAuraVisual(unitType,auraType,layout)
     if InCombatLockdown() or not ns.frames or not layout then return end
+    if auraType=="buffs" then ns.PreviewBuffFiltering(unitType,layout) end
     if unitType=="raid" and auraType=="debuffs" and ns.PreviewRaidDebuffLayout then ns.PreviewRaidDebuffLayout(layout); return end
     local field=AURA_FIELDS[auraType]; if not field then return end
     local point,relativePoint=GetAuraAnchor(layout)
@@ -245,41 +336,97 @@ local function StageAuraValue(key,value)
     auraWorking[key]=value; MarkPending(DISPLAY_NAMES[selectedType].." "..AURA_NAMES[selectedAura].." change staged.")
 end
 
+local function SupportsFrameSection(section)
+    return FRAME_SUPPORT[section] and FRAME_SUPPORT[section][selectedType] == true
+end
+
+local function SetControlEnabled(control, enabled)
+    enabled=not not enabled
+    control:SetEnabled(enabled); control:SetAlpha(enabled and 1 or 0.45)
+    if control.ValueBox then
+        control.ValueBox:SetEnabled(enabled); control.ValueBox:SetAlpha(enabled and 1 or 0.45)
+    end
+end
+
+local function MakeNavigationButton(parent, label, width)
+    local button=CreateFrame("Button",nil,parent,"BackdropTemplate")
+    button:SetSize(width,30)
+    button:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1})
+    local text=button:CreateFontString(nil,"OVERLAY"); text:SetFont(FONT,11,"OUTLINE"); text:SetTextColor(unpack(Skin.text)); text:SetPoint("CENTER")
+    text:SetText(label)
+    local accent=button:CreateTexture(nil,"OVERLAY"); accent:SetColorTexture(unpack(Skin.accent))
+    accent:SetPoint("BOTTOMLEFT",2,2); accent:SetPoint("BOTTOMRIGHT",-2,2); accent:SetHeight(3)
+    button.MIUF_SkinLabel=text; button.MIUF_Accent=accent; Skin.Button(button)
+    button:SetSelected(false)
+    return button
+end
+
+local function MakeFrameSection(parent, title, x, y, width, height)
+    local section=MakeSection(parent,title,width or 426,height or 186)
+    section:SetPoint("TOPLEFT",x,y)
+    return section
+end
+
+local function FrameSlider(parent, name, label, minimum, maximum, width, x, y)
+    local slider=MakeSlider(parent,name,label,minimum,maximum,1,width)
+    slider:SetPoint("TOPLEFT",x,y); slider:HookScript("OnValueChanged",PreviewFrameSliders)
+    return slider
+end
+
+local function RefreshIndicatorControls()
+    local items={
+        {frameUI.sections.role,SupportsFrameSection("role"),working.showRoleIcon},
+        {frameUI.sections.marker,true,working.showRaidMarker~=false},
+        {restingControls.Panel,SupportsFrameSection("resting"),working.showRestingIcon~=false},
+        {frameUI.sections.status,SupportsFrameSection("status"),true},
+        {frameUI.sections.leader,SupportsFrameSection("leader"),working.showLeaderIcon},
+    }
+    local index=0
+    for _,item in ipairs(items) do
+        local panel,available,enabled=unpack(item)
+        panel:SetShown(available)
+        if available then
+            panel:ClearAllPoints(); panel:SetPoint("TOPLEFT",(index%2)*442,-math.floor(index/2)*202)
+            index=index+1
+        end
+        if panel.Toggle then panel.Toggle:SetText(enabled and "On" or "Off") end
+        for _,slider in ipairs(panel.Sliders) do SetControlEnabled(slider,enabled) end
+    end
+end
+
 local function RefreshFrameControls()
-    local isRaid=selectedType=="raid"
-    portraitSlider:SetShown(not isRaid); portraitSlider.ValueBox:SetShown(not isRaid)
-    portraitButton:SetShown(not isRaid); sideButton:SetShown(not isRaid)
-    nameButton:SetText("Name: "..(working.showName and "On" or "Off")); healthTextButton:SetText("Health %: "..(working.showHealthText and "On" or "Off"))
-    portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off")); sideButton:SetText("Portrait Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
-    local roleAvailable=selectedType=="player" or selectedType=="party" or selectedType=="raid"
-    roleIconButton:SetShown(roleAvailable); roleIconButton:SetText("Role Icon: "..(working.showRoleIcon and "On" or "Off"))
-    roleXSlider:SetShown(roleAvailable); roleXSlider.ValueBox:SetShown(roleAvailable); roleYSlider:SetShown(roleAvailable); roleYSlider.ValueBox:SetShown(roleAvailable)
-    roleSizeSlider:SetShown(roleAvailable); roleSizeSlider.ValueBox:SetShown(roleAvailable)
-    restingControls.Panel:SetShown(selectedType=="player")
-    restingControls.Button:SetText("Resting: "..(working.showRestingIcon~=false and "On" or "Off"))
-    raidMarkerButton:SetText("Raid Marker: "..(working.showRaidMarker~=false and "On" or "Off"))
-    readyCheckButton:SetText("Ready Check: "..(working.showReadyCheck~=false and "On" or "Off"))
-    summonButton:SetText("Summon: "..(working.showIncomingSummon~=false and "On" or "Off"))
-    resurrectionButton:SetText("Resurrection: "..(working.showIncomingResurrection~=false and "On" or "Off"))
-    textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v"); healthColorButton:SetText("Health: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
-    powerColorButton:SetText("Power: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic")); fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
+    frameUI.sections.portrait:SetShown(SupportsFrameSection("portrait"))
+    nameButton:SetText("Name: "..(working.showName and "On" or "Off"))
+    healthTextButton:SetText("Health Text: "..(working.showHealthText and "On" or "Off"))
+    portraitButton:SetText("Portrait: "..(working.showPortrait and "On" or "Off"))
+    sideButton:SetText("Side: "..(working.portraitSide=="RIGHT" and "Right" or "Left"))
+    SetControlEnabled(portraitSlider,working.showPortrait); SetControlEnabled(sideButton,working.showPortrait)
+    SetControlEnabled(nameXSlider,working.showName); SetControlEnabled(nameYSlider,working.showName)
+    SetControlEnabled(healthXSlider,working.showHealthText); SetControlEnabled(healthYSlider,working.showHealthText)
+    RefreshIndicatorControls()
+    textureButton:SetText("Bar Texture: "..DisplayName(ns.Media.textures,working.texture,"Flat").."  v")
+    healthColorButton:SetText("Health Bar Color: "..DisplayName(ns.Media.healthColors,working.healthColor,"Automatic"))
+    powerColorButton:SetText("Power Bar Color: "..DisplayName(ns.Media.powerColors,working.powerColor,"Automatic"))
+    fontButton:SetText("Font: "..DisplayName(ns.Media.fonts,working.fontFace,"Friz Quadrata").."  v")
 end
 
 local function RefreshGroupControls()
     local isRaid=selectedType=="raid"
     raidPreviewControls:SetShown(isRaid)
     raidLegacyButton:SetShown(isRaid)
-    local show=selectedType=="party" or selectedType=="boss" or isRaid; partyLayoutPanel:SetShown(show); if not show then return end
+    local show=SupportsFrameSection("group"); partyLayoutPanel:SetShown(show); if not show then return end
     partyLayoutPanel.Title:SetText(DISPLAY_NAMES[selectedType].." group layout"); partyIncludePlayerButton:SetShown(selectedType=="party")
-    partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",15,isRaid and -240 or -320)
+    partyLayoutPanel:ClearAllPoints(); partyLayoutPanel:SetPoint("TOPLEFT",442,isRaid and 0 or -196)
     partySpacingSlider:SetShown(not isRaid); partySpacingSlider.ValueBox:SetShown(not isRaid)
-    partyOrientationButton:SetText("Layout: "..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical"))
+    partyOrientationButton:SetWidth(isRaid and 386 or 190)
+    partyOrientationButton:SetText((isRaid and "Group Orientation: " or "Orientation: ")..(GROUP_ORIENTATION_NAMES[groupWorking.orientation] or "Vertical"))
+    frameUI.raidLayoutNote:SetShown(isRaid)
     partyDirectionButton:SetShown(not isRaid)
     if isRaid then
         raidLegacyButton:SetText("Legacy 40-player groups: "..(groupWorking.legacy40 and "On" or "Off"))
     else
         local dir=groupWorking.direction or "DOWN"
-        partyDirectionButton:SetText("Grow: "..dir:sub(1,1)..dir:sub(2):lower()); partySpacingSlider:SetValue(groupWorking.spacing or 32)
+        partyDirectionButton:SetText("Growth Direction: "..dir:sub(1,1)..dir:sub(2):lower()); partySpacingSlider:SetValue(groupWorking.spacing or 32)
     end
     partyIncludePlayerButton:SetText("Include Player: "..(groupWorking.includePlayer and "On" or "Off"))
 end
@@ -291,12 +438,15 @@ local function RefreshAuraControls()
     for _,slider in ipairs({auraSizeSlider,auraCountSlider,auraSpacingSlider,auraXSlider,auraYSlider}) do if available then slider:Enable() else slider:Disable() end end
     auraEnableButton:SetEnabled(available); auraTextButton:SetEnabled(available and auraWorking.enabled~=false); auraAnchorButton:SetEnabled(available and auraWorking.enabled~=false); auraGrowthButton:SetEnabled(available and auraWorking.enabled~=false)
     if available then
-        auraEnableButton:SetText("Enabled: "..(auraWorking.enabled~=false and "On" or "Off")); auraTextButton:SetText("Text: "..(auraWorking.showText~=false and "On" or "Off"))
+        auraEnableButton:SetText("Enabled: "..(auraWorking.enabled~=false and "On" or "Off")); auraTextButton:SetText("Cooldown Text: "..(auraWorking.showText~=false and "On" or "Off"))
         auraSizeSlider:SetValue(auraWorking.iconSize); auraCountSlider:SetValue(auraWorking.maxCount); auraSpacingSlider:SetValue(auraWorking.spacing); auraXSlider:SetValue(auraWorking.xOffset); auraYSlider:SetValue(auraWorking.yOffset)
-        auraAnchorButton:SetText("Anchor: "..(ANCHOR_NAMES[auraWorking.anchor] or auraWorking.anchor)); auraGrowthButton:SetText("Grow: "..(GROWTH_NAMES[auraWorking.growth] or auraWorking.growth))
+        auraAnchorButton:SetText("Anchor: "..(ANCHOR_NAMES[auraWorking.anchor] or auraWorking.anchor)); auraGrowthButton:SetText("Growth: "..(GROWTH_NAMES[auraWorking.growth] or auraWorking.growth))
     else
-        auraEnableButton:SetText("Enabled: N/A"); auraTextButton:SetText("Text: N/A"); auraAnchorButton:SetText("Anchor: N/A"); auraGrowthButton:SetText("Grow: N/A")
+        auraEnableButton:SetText("Enabled: N/A"); auraTextButton:SetText("Cooldown Text: N/A"); auraAnchorButton:SetText("Anchor: N/A"); auraGrowthButton:SetText("Growth: N/A")
     end
+    auraUI.filtering:SetChecked(auraWorking.filteringEnabled~=false)
+    auraUI.filtering:SetEnabled(available and selectedAura=="buffs")
+    auraUI.reset:SetText("Reset "..DISPLAY_NAMES[selectedType].." "..(AURA_NAMES[selectedAura] or "Aura"))
     refreshing=wasRefreshing
 end
 
@@ -317,7 +467,7 @@ end
 
 local function RefreshTrackedWindow()
     if not buffFilterPanel then return end
-    local show=selectedPage=="auras" and selectedAura=="buffs"; buffFilterPanel:SetShown(show); if not show then return end
+    local show=IsAurasSelected() and selectedAura=="buffs"; buffFilterPanel:SetShown(show); if not show then return end
     ObserveCurrentBuffs(); local tracked=ns.ConfigSessionGetTrackedBuffs(); local trackedList,seenList={},{}
     for id,meta in pairs(tracked or {}) do local n=tonumber(id); if n then trackedList[#trackedList+1]={spellID=n,name=meta.name or ("Spell "..n),icon=meta.icon} end end
     for id,meta in pairs(ns.GetSeenBuffs() or {}) do local n=tonumber(id); if n and not tracked[n] then seenList[#seenList+1]={spellID=n,name=meta.name or ("Spell "..n),icon=meta.icon,lastSeen=meta.lastSeen or 0} end end
@@ -340,7 +490,7 @@ end
 local function SetProfileStatus(text, errorState)
     if not profileActionStatus then return end
     profileActionStatus:SetText(text or "")
-    profileActionStatus:SetTextColor(errorState and 1 or 0.65, errorState and 0.35 or 0.78, errorState and 0.35 or 0.88)
+    profileActionStatus:SetTextColor(errorState and 0.72 or Skin.muted[1], errorState and 0.43 or Skin.muted[2], errorState and 0.40 or Skin.muted[3])
 end
 
 local function RefreshProfilesControls()
@@ -364,16 +514,41 @@ local function RefreshProfilesControls()
     end
 end
 
-local function RefreshPageSelection()
-    if selectedPage=="profiles" then
-        selectedLabel:SetText("Profiles")
-    else
-        selectedLabel:SetText(DISPLAY_NAMES[selectedType].." Settings")
+local function RefreshAurasCategory()
+    local previous
+    for _,auraType in ipairs(AURA_TYPES) do
+        local button=auraButtons[auraType]
+        local available=AuraAvailable(selectedType,auraType)
+        button:SetShown(available); button:SetSelected(auraType==selectedAura)
+        if available then
+            button:ClearAllPoints()
+            if previous then button:SetPoint("LEFT",previous,"RIGHT",8,0)
+            else button:SetPoint("TOPLEFT",0,-36) end
+            previous=button
+        end
     end
-    if selectedType=="boss" and selectedPage=="auras" then selectedPage="frames" end
-    auraTab:SetShown(selectedType~="boss" or selectedPage=="profiles")
-    framesPage:SetShown(selectedPage=="frames"); aurasPage:SetShown(selectedPage=="auras"); profilesPage:SetShown(selectedPage=="profiles")
-    frameTab:SetEnabled(selectedPage~="frames"); auraTab:SetEnabled(selectedPage~="auras"); profileTab:SetEnabled(selectedPage~="profiles")
+    RefreshAuraControls(); RefreshTrackedWindow()
+    auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
+end
+
+local function RefreshFramesNavigation()
+    if frameUI.category=="Auras" and not SupportsFrameSection("auras") then frameUI.category="Layout" end
+    for unitType,button in pairs(frameUI.units) do button:SetSelected(unitType==selectedType) end
+    for name,entry in pairs(frameUI.categories) do
+        entry.Button:SetShown(name~="Auras" or SupportsFrameSection("auras"))
+        entry.Button:SetSelected(name==frameUI.category); entry.Panel:SetShown(name==frameUI.category)
+    end
+    frameUI.header.Title:SetText(string.upper(DISPLAY_NAMES[selectedType])..((selectedType=="party" or selectedType=="raid" or selectedType=="boss") and " FRAMES" or " FRAME"))
+    frameUI.enabled:SetChecked(ns.ConfigSessionGetEnabled(selectedType))
+    frameUI.reset:SetText("Reset "..DISPLAY_NAMES[selectedType])
+end
+
+local function RefreshPageSelection()
+    selectedLabel:SetText("Profiles"); selectedLabel:SetShown(selectedPage=="profiles")
+    config:SetHeight(selectedPage=="frames" and 760 or 840); frameUI.FitToScreen()
+    framesPage:SetShown(selectedPage=="frames"); profilesPage:SetShown(selectedPage=="profiles")
+    frameTab:SetSelected(selectedPage=="frames"); profileTab:SetSelected(selectedPage=="profiles")
+    frameTab:SetEnabled(selectedPage~="frames"); profileTab:SetEnabled(selectedPage~="profiles")
 end
 
 local function RefreshFramesPage()
@@ -383,38 +558,41 @@ local function RefreshFramesPage()
     nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
     roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
     roleSizeSlider:SetValue(working.roleIconSize or 14)
+    local leader=frameUI.sections.leader
+    leader.X:SetValue(working.leaderIconXOffset or -16); leader.Y:SetValue(working.leaderIconYOffset or -2)
+    leader.Size:SetValue(working.leaderIconSize or 12)
     if selectedType=="player" then
         restingControls.X:SetValue(working.restingIconXOffset or 3); restingControls.Y:SetValue(working.restingIconYOffset or -3)
         restingControls.Size:SetValue(working.restingIconSize or 16)
     end
     raidXSlider:SetValue(working.raidMarkerXOffset or 0); raidYSlider:SetValue(working.raidMarkerYOffset or 2); raidSizeSlider:SetValue(working.raidMarkerSize or 20)
     statusXSlider:SetValue(working.statusIconXOffset or -4); statusYSlider:SetValue(working.statusIconYOffset or -3); statusSizeSlider:SetValue(working.statusIconSize or 18)
-    RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frame Movers" or "Lock Frame Movers")
+    RefreshFrameControls(); RefreshGroupControls(); frameLockButton:SetText(ns.AreFrameMoversLocked() and "Unlock Frames" or "Lock Frames")
 end
 
 function ns.RefreshConfig()
     if not config or not config:IsShown() then return end
     refreshing=true; MarkPending(); CopyWorking()
-    for unitType,button in pairs(frameButtons) do button:SetEnabled(unitType~=selectedType); frameEnableChecks[unitType]:SetChecked(ns.ConfigSessionGetEnabled(unitType)) end
+    RefreshFramesNavigation()
     RefreshPageSelection()
     if selectedPage=="frames" then
         RefreshFramesPage()
-    elseif selectedPage=="auras" then
-        for auraType,button in pairs(auraButtons) do button:SetShown(selectedType~="raid" or auraType=="debuffs"); button:SetEnabled(AuraAvailable(selectedType,auraType) and auraType~=selectedAura) end
-        RefreshAuraControls(); RefreshTrackedWindow(); auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
+        if IsAurasSelected() then RefreshAurasCategory() end
     else
-        if selectedPage=="profiles" then RefreshProfilesControls() end
+        RefreshProfilesControls()
     end
     statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
     ns.UpdateRaidPreview()
-    if not InCombatLockdown() and selectedPage=="auras" and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
+    RefreshStatusIconPreview()
+    if not InCombatLockdown() and IsAurasSelected() and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
 end
 
 local function ApplyChanges()
+    ClearStatusIconPreview()
     local committed,summary=ns.ConfigSessionCommit()
     if not committed then return end
     previewAuraUnitType,previewAuraType=nil,nil
@@ -442,6 +620,7 @@ local function ApplyChanges()
 end
 
 local function RevertChanges()
+    ClearStatusIconPreview()
     if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
     previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
     local reverted,err=ns.ConfigSessionRevert()
@@ -455,9 +634,10 @@ local function RevertChanges()
 end
 
 local function SelectPage(page)
+    if page~="frames" then ClearStatusIconPreview() end
     if fontMenu then fontMenu:Hide() end
     if textureMenu then textureMenu:Hide() end
-    if page=="frames" then RestoreAuraPreview() elseif page=="auras" then RestoreFramePreview(); ChooseAvailableAura() else RestoreFramePreview(); RestoreAuraPreview() end
+    if page~="frames" then RestoreFramePreview(); RestoreAuraPreview() end
     selectedPage=page
     ns.RefreshConfig()
 end
@@ -465,84 +645,111 @@ end
 local function CreateShell()
     config=CreateFrame("Frame","MIUF_ConfigFrame",UIParent,"BackdropTemplate"); config:SetSize(900,840); config:SetPoint("CENTER"); config:SetFrameStrata("DIALOG"); config:SetClampedToScreen(true); config:SetMovable(true); config:EnableMouse(true); config:RegisterForDrag("LeftButton")
     local function FitConfigToScreen()
-        config:SetScale(math.min(1,(UIParent:GetWidth()-32)/900,(UIParent:GetHeight()-32)/840))
+        config:SetScale(math.min(1,(UIParent:GetWidth()-32)/config:GetWidth(),(UIParent:GetHeight()-32)/config:GetHeight()))
     end
+    frameUI.FitToScreen=FitConfigToScreen
     config:SetScript("OnShow",FitConfigToScreen)
     config:RegisterEvent("UI_SCALE_CHANGED"); config:RegisterEvent("DISPLAY_SIZE_CHANGED")
     config:SetScript("OnEvent",FitConfigToScreen)
     FitConfigToScreen()
-    config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); config:SetBackdropColor(0.035,0.035,0.04,0.97); config:SetBackdropBorderColor(0.2,0.55,0.85,1)
-    config:SetScript("OnHide",function() if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
-    local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetPoint("TOPLEFT",18,-16); title:SetText("MythInc Unit Frames")
-    local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(0.65,0.7,0.75)
+    config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(config,Skin.background)
+    config:SetScript("OnHide",function() ClearStatusIconPreview(); if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
+    local icon=config:CreateTexture(nil,"ARTWORK"); icon:SetSize(96,96); icon:SetPoint("TOPLEFT",18,-10)
+    icon:SetTexture("Interface\\AddOns\\"..ADDON_NAME.."\\Artwork\\MIUF_Icon_128.png")
+    local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetTextColor(unpack(Skin.text)); title:SetPoint("TOPLEFT",120,-16); title:SetText("M Y T H Inc Unit Frames")
+    local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetTextColor(unpack(Skin.text)); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(unpack(Skin.muted))
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
     frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() SelectPage("frames") end)
-    auraTab=MakeButton(config,"Auras",110,28); auraTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); auraTab:SetScript("OnClick",function() SelectPage("auras") end)
-    profileTab=MakeButton(config,"Profiles",110,28); profileTab:SetPoint("LEFT",auraTab,"RIGHT",8,0); profileTab:SetScript("OnClick",function() SelectPage("profiles") end)
-    local prev
-    for _,unitType in ipairs(FRAME_TYPES) do
-        local row=CreateFrame("Frame",nil,config); row:SetSize(130,28); if prev then row:SetPoint("TOPLEFT",prev,"BOTTOMLEFT",0,-6) else row:SetPoint("TOPLEFT",12,-80) end
-        local check=CreateFrame("CheckButton",nil,row,"UICheckButtonTemplate"); check:SetSize(24,24); check:SetPoint("LEFT"); check:SetScript("OnClick",function(self)
-            if InCombatLockdown() then self:SetChecked(ns.ConfigSessionGetEnabled(unitType)); return end
-            ns.ConfigSessionStageEnabled(unitType,self:GetChecked() and true or false); MarkPending(DISPLAY_NAMES[unitType].." enable state staged."); if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(unitType,self:GetChecked()) end
-        end); frameEnableChecks[unitType]=check
-        local b=MakeButton(row,DISPLAY_NAMES[unitType],101,28); b:SetPoint("LEFT",check,"RIGHT",1,0); b:SetScript("OnClick",function()
-            if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
-            if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
-            if previewAuraUnitType then RestoreAuraPreview() end
-            selectedType=unitType; if selectedPage=="profiles" or unitType=="raid" then selectedPage="frames" end; ns.RefreshConfig()
-        end); frameButtons[unitType]=b; prev=row
-    end
+    profileTab=MakeButton(config,"Profiles",110,28); profileTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); profileTab:SetScript("OnClick",function() SelectPage("profiles") end)
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
     revertChangesButton=MakeButton(config,"Revert Changes",120,28); revertChangesButton:SetPoint("LEFT",applyChangesButton,"RIGHT",8,0); revertChangesButton:SetEnabled(false); revertChangesButton:SetScript("OnClick",RevertChanges)
     local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
         ns.ConfigSessionStageResetAll(); MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
-    selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetPoint("TOPLEFT",180,-94)
-    statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
+    selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetTextColor(unpack(Skin.text)); selectedLabel:SetPoint("TOPLEFT",180,-94)
+    statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetTextColor(unpack(Skin.text)); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
 end
 
-local function CreateIndicatorControls(parent,indicators)
-    roleIconButton=MakeButton(indicators,"Role Icon: Off",145,24); roleIconButton:SetPoint("TOPLEFT",10,-30); roleIconButton:SetScript("OnClick",function() working.showRoleIcon=not working.showRoleIcon; RefreshFrameControls(); PreviewFrameSliders() end)
-    raidMarkerButton=MakeButton(indicators,"Raid Marker: On",145,24); raidMarkerButton:SetPoint("LEFT",roleIconButton,"RIGHT",10,0); raidMarkerButton:SetScript("OnClick",function() working.showRaidMarker=working.showRaidMarker==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    roleXSlider=MakeSlider(indicators,"RoleIconXOffset","Role X",-100,100,1,85); roleXSlider:SetPoint("TOPLEFT",10,-78); roleXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    roleYSlider=MakeSlider(indicators,"RoleIconYOffset","Role Y",-100,100,1,85); roleYSlider:SetPoint("TOPLEFT",120,-78); roleYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    roleSizeSlider=MakeSlider(indicators,"RoleIconSize","Role Size",8,48,1,85); roleSizeSlider:SetPoint("TOPLEFT",230,-78); roleSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidXSlider=MakeSlider(indicators,"RaidMarkerXOffset","Marker X",-150,150,1,85); raidXSlider:SetPoint("TOPLEFT",10,-135); raidXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidYSlider=MakeSlider(indicators,"RaidMarkerYOffset","Marker Y",-150,150,1,85); raidYSlider:SetPoint("TOPLEFT",120,-135); raidYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    raidSizeSlider=MakeSlider(indicators,"RaidMarkerSize","Size",8,48,1,85); raidSizeSlider:SetPoint("TOPLEFT",230,-135); raidSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    readyCheckButton=MakeButton(indicators,"Ready Check: On",100,24); readyCheckButton:SetPoint("TOPLEFT",10,-180); readyCheckButton:SetScript("OnClick",function() working.showReadyCheck=working.showReadyCheck==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    summonButton=MakeButton(indicators,"Summon: On",95,24); summonButton:SetPoint("LEFT",readyCheckButton,"RIGHT",5,0); summonButton:SetScript("OnClick",function() working.showIncomingSummon=working.showIncomingSummon==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    resurrectionButton=MakeButton(indicators,"Resurrection: On",115,24); resurrectionButton:SetPoint("LEFT",summonButton,"RIGHT",5,0); resurrectionButton:SetScript("OnClick",function() working.showIncomingResurrection=working.showIncomingResurrection==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    statusXSlider=MakeSlider(indicators,"StatusIconXOffset","Status X",-150,150,1,85); statusXSlider:SetPoint("TOPLEFT",10,-230); statusXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    statusYSlider=MakeSlider(indicators,"StatusIconYOffset","Status Y",-150,150,1,85); statusYSlider:SetPoint("TOPLEFT",120,-230); statusYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    statusSizeSlider=MakeSlider(indicators,"StatusIconSize","Status Size",8,48,1,85); statusSizeSlider:SetPoint("TOPLEFT",230,-230); statusSizeSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-
-    restingControls.Panel=MakeSection(parent,"Player Indicators",345,120); restingControls.Panel:SetPoint("TOPLEFT",365,-575)
-    restingControls.Button=MakeButton(restingControls.Panel,"Resting: On",145,24); restingControls.Button:SetPoint("TOPLEFT",10,-28)
-    restingControls.Button:SetScript("OnClick",function() working.showRestingIcon=working.showRestingIcon==false; RefreshFrameControls(); PreviewFrameSliders() end)
-    restingControls.X=MakeSlider(restingControls.Panel,"RestingIconXOffset","Resting X",-100,100,1,85); restingControls.X:SetPoint("TOPLEFT",10,-75); restingControls.X:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Y=MakeSlider(restingControls.Panel,"RestingIconYOffset","Resting Y",-100,100,1,85); restingControls.Y:SetPoint("TOPLEFT",120,-75); restingControls.Y:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Size=MakeSlider(restingControls.Panel,"RestingIconSize","Resting Size",8,48,1,85); restingControls.Size:SetPoint("TOPLEFT",230,-75); restingControls.Size:HookScript("OnValueChanged",PreviewFrameSliders)
-    restingControls.Panel:Hide()
+local function CreateIndicatorSection(parent,title,prefix,offsetLimit,toggleKey)
+    local panel=MakeFrameSection(parent,title,0,0)
+    if toggleKey then
+        panel.Toggle=MakeButton(panel,"On",90,26); panel.Toggle:SetPoint("TOPLEFT",18,-34)
+        panel.Toggle:SetScript("OnClick",function()
+            if toggleKey=="showRoleIcon" or toggleKey=="showLeaderIcon" then working[toggleKey]=not working[toggleKey]
+            else working[toggleKey]=working[toggleKey]==false end
+            RefreshFrameControls(); PreviewFrameSliders()
+        end)
+    else
+        local note=panel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text))
+        note:SetPoint("TOPLEFT",18,-40); note:SetText("Ready Check • Summon • Incoming Resurrection")
+    end
+    panel.X=FrameSlider(panel,prefix.."XOffset","X",-offsetLimit,offsetLimit,110,18,-94)
+    panel.Y=FrameSlider(panel,prefix.."YOffset","Y",-offsetLimit,offsetLimit,110,158,-94)
+    panel.Size=FrameSlider(panel,prefix.."Size","Size",8,48,110,298,-94)
+    panel.Sliders={panel.X,panel.Y,panel.Size}
+    return panel
 end
 
-local function CreateFrameLayoutControls(layout)
-    widthSlider=MakeSlider(layout,"Width","Width",100,600,1,285); widthSlider:SetPoint("TOPLEFT",20,-42); widthSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    heightSlider=MakeSlider(layout,"Height","Height",24,150,1,285); heightSlider:SetPoint("TOPLEFT",20,-102); heightSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    powerSlider=MakeSlider(layout,"PowerPercent","Power bar height (%)",10,40,1,285); powerSlider:SetPoint("TOPLEFT",20,-162); powerSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    portraitSlider=MakeSlider(layout,"PortraitPercent","Portrait width (%)",12,40,1,285); portraitSlider:SetPoint("TOPLEFT",20,-222); portraitSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    portraitButton=MakeButton(layout,"Portrait: Off",118,26); portraitButton:SetPoint("TOPLEFT",15,-282); portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls(); PreviewFrameSliders() end)
-    sideButton=MakeButton(layout,"Portrait Side: Left",155,26); sideButton:SetPoint("LEFT",portraitButton,"RIGHT",8,0); sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
+local function CreateStatusIconPreviewControl(panel)
+    local check=CreateFrame("CheckButton",nil,panel,"UICheckButtonTemplate"); Skin.Check(check)
+    check:SetSize(24,24); check:SetPoint("TOPRIGHT",-76,-4); check:SetChecked(false)
+    local label=check:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetTextColor(unpack(Skin.text))
+    label:SetPoint("LEFT",check,"RIGHT",2,0); label:SetText("Preview")
+    frameUI.statusPreview=check
+    check:SetScript("OnClick",function(self)
+        if not self:GetChecked() then ClearStatusIconPreview(); return end
+        -- Record only visual ownership so the existing close/unit-change path
+        -- restores saved geometry even when no setting was edited.
+        previewFrameType=selectedType
+        RefreshStatusIconPreview()
+        local elapsed=0
+        self:SetScript("OnUpdate",function(_,delta)
+            elapsed=elapsed+delta; if elapsed<0.1 then return end; elapsed=0
+            RefreshStatusIconPreview()
+        end)
+    end)
+    panel:HookScript("OnHide",ClearStatusIconPreview)
+end
+
+local function CreateIndicatorControls(parent)
+    frameUI.sections.leader=CreateIndicatorSection(parent,"Leader Icon","LeaderIcon",150,"showLeaderIcon")
+    local role=CreateIndicatorSection(parent,"Role Icon","RoleIcon",100,"showRoleIcon")
+    frameUI.sections.role=role
+    roleXSlider,roleYSlider,roleSizeSlider=role.X,role.Y,role.Size
+    local marker=CreateIndicatorSection(parent,"Raid Marker","RaidMarker",150,"showRaidMarker")
+    frameUI.sections.marker=marker
+    raidXSlider,raidYSlider,raidSizeSlider=marker.X,marker.Y,marker.Size
+    local resting=CreateIndicatorSection(parent,"Resting Indicator","RestingIcon",100,"showRestingIcon")
+    restingControls.Panel=resting; restingControls.Button=resting.Toggle
+    restingControls.X,restingControls.Y,restingControls.Size=resting.X,resting.Y,resting.Size
+    local status=CreateIndicatorSection(parent,"Temporary Status Icons","StatusIcon",150)
+    frameUI.sections.status=status
+    CreateStatusIconPreviewControl(status)
+    statusXSlider,statusYSlider,statusSizeSlider=status.X,status.Y,status.Size
+end
+
+local function CreateFrameLayoutControls(parent)
+    local size=MakeFrameSection(parent,"Frame Size",0,0,426,142)
+    widthSlider=FrameSlider(size,"Width","Frame Width",100,600,174,18,-54)
+    heightSlider=FrameSlider(size,"Height","Frame Height",24,150,174,234,-54)
+    local power=MakeFrameSection(parent,"Power Bar",0,-158,426,130)
+    powerSlider=FrameSlider(power,"PowerPercent","Power Bar Height (%)",10,40,360,28,-52)
+    local portrait=MakeFrameSection(parent,"Portrait",442,0,426,180); frameUI.sections.portrait=portrait
+    portraitButton=MakeButton(portrait,"Portrait: Off",170,26); portraitButton:SetPoint("TOPLEFT",18,-34)
+    portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls(); PreviewFrameSliders() end)
+    sideButton=MakeButton(portrait,"Side: Left",170,26); sideButton:SetPoint("TOPLEFT",234,-34)
+    sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
+    portraitSlider=FrameSlider(portrait,"PortraitPercent","Portrait Width (%)",12,40,360,28,-96)
 end
 
 local function CreateGroupLayoutControls(layout)
-    partyLayoutPanel=CreateFrame("Frame",nil,layout); partyLayoutPanel:SetSize(300,78); partyLayoutPanel:SetPoint("TOPLEFT",15,-320)
-    local ptitle=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); ptitle:SetFont(FONT,10,"OUTLINE"); ptitle:SetPoint("TOPLEFT"); ptitle:SetTextColor(0.7,0.76,0.82); partyLayoutPanel.Title=ptitle
-    partyOrientationButton=MakeButton(partyLayoutPanel,"Layout: Vertical",128,24); partyOrientationButton:SetPoint("TOPLEFT",0,-18); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); if selectedType~="raid" then groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partyDirectionButton=MakeButton(partyLayoutPanel,"Grow: Down",105,24); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",0,-48); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
-    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Spacing",0,80,1,125); partySpacingSlider:SetPoint("TOPLEFT",160,-43); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing and selectedType~="raid" then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
-    raidLegacyButton=MakeButton(partyLayoutPanel,"",245,24); raidLegacyButton:SetPoint("TOPLEFT",0,-48)
+    partyLayoutPanel=MakeFrameSection(layout,"Group Layout",442,-196,426,208)
+    frameUI.raidLayoutNote=partyLayoutPanel:CreateFontString(nil,"OVERLAY"); frameUI.raidLayoutNote:SetFont(FONT,11,"OUTLINE"); frameUI.raidLayoutNote:SetTextColor(unpack(Skin.text)); frameUI.raidLayoutNote:SetPoint("TOPLEFT",18,-118); frameUI.raidLayoutNote:SetWidth(386); frameUI.raidLayoutNote:SetJustifyH("LEFT")
+    frameUI.raidLayoutNote:SetText("Controls whether raid groups are arranged vertically or horizontally.")
+    partyOrientationButton=MakeButton(partyLayoutPanel,"Orientation: Vertical",190,26); partyOrientationButton:SetPoint("TOPLEFT",18,-38); partyOrientationButton:SetScript("OnClick",function() groupWorking.orientation=Cycle(groupWorking.orientation or "VERTICAL",GROUP_ORIENTATION_ORDER); if selectedType~="raid" then groupWorking.direction=groupWorking.orientation=="HORIZONTAL" and "RIGHT" or "DOWN" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyDirectionButton=MakeButton(partyLayoutPanel,"Growth Direction: Down",190,26); partyDirectionButton:SetPoint("LEFT",partyOrientationButton,"RIGHT",7,0); partyDirectionButton:SetScript("OnClick",function() if groupWorking.orientation=="HORIZONTAL" then groupWorking.direction=groupWorking.direction=="LEFT" and "RIGHT" or "LEFT" else groupWorking.direction=groupWorking.direction=="UP" and "DOWN" or "UP" end; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partyIncludePlayerButton=MakeButton(partyLayoutPanel,"Include Player: Off",140,24); partyIncludePlayerButton:SetPoint("TOPLEFT",18,-166); partyIncludePlayerButton:SetScript("OnClick",function() groupWorking.includePlayer=not groupWorking.includePlayer; StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders() end)
+    partySpacingSlider=MakeSlider(partyLayoutPanel,"PartySpacing","Frame Spacing",0,80,1,360); partySpacingSlider:SetPoint("TOPLEFT",28,-101); partySpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing and selectedType~="raid" then groupWorking.spacing=Round(v); StageGroupControls(); PreviewFrameSliders() end end)
+    raidLegacyButton=MakeButton(partyLayoutPanel,"",245,24); raidLegacyButton:SetPoint("TOPLEFT",18,-78)
     raidLegacyButton:SetScript("OnClick",function()
         groupWorking.legacy40=not groupWorking.legacy40
         StageGroupControls(); RefreshGroupControls(); PreviewFrameSliders()
@@ -550,10 +757,11 @@ local function CreateGroupLayoutControls(layout)
 end
 
 local function CreateRaidPreviewControls(parent)
-    raidPreviewControls=CreateFrame("Frame",nil,parent); raidPreviewControls:SetSize(330,62); raidPreviewControls:SetPoint("TOPLEFT",20,-480)
+    raidPreviewControls=CreateFrame("Frame",nil,parent); raidPreviewControls:SetSize(180,28); raidPreviewControls:SetPoint("BOTTOMLEFT",240,0)
     local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT")
     revertRaid:SetScript("OnClick",function()
         if InCombatLockdown() then return end
+        ClearStatusIconPreview()
         ns.StopConfigurationMovers("raid")
         ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
         ns.ConfigSessionStageEnabled("raid",ns.IsFrameTypeEnabled("raid"))
@@ -569,29 +777,34 @@ local function CreateRaidPreviewControls(parent)
     end)
 end
 
-local function CreateTextControls(text)
-    fontButton=MakeButton(text,"Font",190,26); fontButton:SetPoint("TOPLEFT",15,-34)
+local function CreateTextControls(parent)
+    local text=MakeFrameSection(parent,"Typography",0,0,868,130)
+    fontButton=MakeButton(text,"Font",350,26); fontButton:SetPoint("TOPLEFT",18,-44)
     fontMenu=CreateFrame("Frame",nil,text,"BackdropTemplate"); fontMenu:SetWidth(190); fontMenu:SetHeight((#ns.Media.fontOrder*24)+8); fontMenu:SetPoint("TOPLEFT",fontButton,"BOTTOMLEFT",0,-2); fontMenu:SetFrameLevel(text:GetFrameLevel()+20)
-    fontMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); fontMenu:SetBackdropColor(0.03,0.035,0.045,0.98); fontMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); fontMenu:Hide()
+    fontMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(fontMenu,Skin.background); fontMenu:Hide()
     for i,key in ipairs(ns.Media.fontOrder) do
         local entry=ns.Media.fonts[key]; local choice=MakeButton(fontMenu,entry.name,180,22); choice:SetPoint("TOPLEFT",5,-4-((i-1)*24))
         local label=choice:GetFontString(); if label then label:SetFont(entry.path,12,"OUTLINE") end
         choice:SetScript("OnClick",function() working.fontFace=key; fontMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
     end
     fontButton:SetScript("OnClick",function() if textureMenu then textureMenu:Hide() end; if fontMenu:IsShown() then fontMenu:Hide() else fontMenu:Show() end end)
-    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",20,-76); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    nameButton=MakeButton(text,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",15,-132); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls(); PreviewFrameSliders() end)
-    nameXSlider=MakeSlider(text,"NameXOffset","Name X",-200,200,1,135); nameXSlider:SetPoint("TOPLEFT",20,-172); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    nameYSlider=MakeSlider(text,"NameYOffset","Name Y",-100,100,1,135); nameYSlider:SetPoint("TOPLEFT",190,-172); nameYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    healthTextButton=MakeButton(text,"Health %: On",105,26); healthTextButton:SetPoint("TOPLEFT",15,-224); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls(); PreviewFrameSliders() end)
-    healthXSlider=MakeSlider(text,"HealthXOffset","Health X",-200,200,1,135); healthXSlider:SetPoint("TOPLEFT",20,-264); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    healthYSlider=MakeSlider(text,"HealthYOffset","Health Y",-100,100,1,135); healthYSlider:SetPoint("TOPLEFT",190,-264); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    fontSlider=MakeSlider(text,"FontSize","Font size",8,24,1,285); fontSlider:SetPoint("TOPLEFT",470,-52); fontSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    local name=MakeFrameSection(parent,"Name",0,-146,426,200)
+    local health=MakeFrameSection(parent,"Health Text",442,-146,426,200)
+    nameButton=MakeButton(name,"Name: On",105,26); nameButton:SetPoint("TOPLEFT",18,-34); nameButton:SetScript("OnClick",function() working.showName=not working.showName; RefreshFrameControls(); PreviewFrameSliders() end)
+    nameXSlider=MakeSlider(name,"NameXOffset","X",-200,200,1,174); nameXSlider:SetPoint("TOPLEFT",18,-100); nameXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    nameYSlider=MakeSlider(name,"NameYOffset","Y",-100,100,1,174); nameYSlider:SetPoint("TOPLEFT",234,-100); nameYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    healthTextButton=MakeButton(health,"Health Text: On",150,26); healthTextButton:SetPoint("TOPLEFT",18,-34); healthTextButton:SetScript("OnClick",function() working.showHealthText=not working.showHealthText; RefreshFrameControls(); PreviewFrameSliders() end)
+    healthXSlider=MakeSlider(health,"HealthXOffset","X",-200,200,1,174); healthXSlider:SetPoint("TOPLEFT",18,-100); healthXSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    healthYSlider=MakeSlider(health,"HealthYOffset","Y",-100,100,1,174); healthYSlider:SetPoint("TOPLEFT",234,-100); healthYSlider:HookScript("OnValueChanged",PreviewFrameSliders)
 end
 
-local function CreateAppearanceControls(appearance)
-    textureButton=MakeButton(appearance,"Bar Texture",155,26); textureButton:SetPoint("TOPLEFT",15,-34)
+local function CreateAppearanceControls(parent)
+    local appearance=MakeFrameSection(parent,"Bars",0,0,426,226)
+    local opacity=MakeFrameSection(parent,"Opacity",442,0,426,226)
+    textureButton=MakeButton(appearance,"Bar Texture",386,26); textureButton:SetPoint("TOPLEFT",18,-38)
     textureMenu=CreateFrame("Frame",nil,appearance,"BackdropTemplate"); textureMenu:SetWidth(155); textureMenu:SetHeight((#ns.Media.textureOrder*28)+8); textureMenu:SetPoint("TOPLEFT",textureButton,"BOTTOMLEFT",0,-2); textureMenu:SetFrameLevel(appearance:GetFrameLevel()+20)
-    textureMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); textureMenu:SetBackdropColor(0.03,0.035,0.045,0.98); textureMenu:SetBackdropBorderColor(0.25,0.5,0.75,1); textureMenu:Hide()
+    textureMenu:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(textureMenu,Skin.background); textureMenu:Hide()
     for i,key in ipairs(ns.Media.textureOrder) do
         local entry=ns.Media.textures[key]; local choice=MakeButton(textureMenu,entry.name,145,26); choice:SetPoint("TOPLEFT",5,-4-((i-1)*28))
         local sample=choice:CreateTexture(nil,"OVERLAY"); sample:SetSize(38,8); sample:SetPoint("LEFT",8,0); sample:SetTexture(entry.path)
@@ -599,77 +812,226 @@ local function CreateAppearanceControls(appearance)
         choice:SetScript("OnClick",function() working.texture=key; textureMenu:Hide(); RefreshFrameControls(); PreviewFrameSliders() end)
     end
     textureButton:SetScript("OnClick",function() if fontMenu then fontMenu:Hide() end; if textureMenu:IsShown() then textureMenu:Hide() else textureMenu:Show() end end)
-    healthColorButton=MakeButton(appearance,"Health",155,26); healthColorButton:SetPoint("LEFT",textureButton,"RIGHT",8,0); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
-    powerColorButton=MakeButton(appearance,"Power",155,26); powerColorButton:SetPoint("TOPLEFT",15,-68); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
-    bgSlider=MakeSlider(appearance,"BackgroundOpacity","Background opacity (%)",0,100,1,135); bgSlider:SetPoint("TOPLEFT",180,-75); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
-    borderSlider=MakeSlider(appearance,"BorderOpacity","Border opacity (%)",0,100,1,135); borderSlider:SetPoint("TOPLEFT",180,-125); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    healthColorButton=MakeButton(appearance,"Health Bar Color",386,26); healthColorButton:SetPoint("TOPLEFT",18,-88); healthColorButton:SetScript("OnClick",function() working.healthColor=Cycle(working.healthColor,ns.Media.healthColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
+    powerColorButton=MakeButton(appearance,"Power Bar Color",386,26); powerColorButton:SetPoint("TOPLEFT",18,-138); powerColorButton:SetScript("OnClick",function() working.powerColor=Cycle(working.powerColor,ns.Media.powerColorOrder); RefreshFrameControls(); PreviewFrameSliders() end)
+    bgSlider=MakeSlider(opacity,"BackgroundOpacity","Background Opacity (%)",0,100,1,360); bgSlider:SetPoint("TOPLEFT",28,-52); bgSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+    borderSlider=MakeSlider(opacity,"BorderOpacity","Border Opacity (%)",0,100,1,360); borderSlider:SetPoint("TOPLEFT",28,-138); borderSlider:HookScript("OnValueChanged",PreviewFrameSliders)
+end
+
+local function CreateFramesNavigation()
+    local previous
+    for _,unitType in ipairs(FRAME_TYPES) do
+        local button=MakeNavigationButton(framesPage,DISPLAY_NAMES[unitType],unitType=="targettarget" and 154 or 96)
+        if previous then button:SetPoint("LEFT",previous,"RIGHT",6,0) else button:SetPoint("TOPLEFT",0,0) end
+        button:SetScript("OnClick",function()
+            if selectedType==unitType then return end
+            ClearStatusIconPreview()
+            if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
+            if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
+            if previewAuraUnitType then RestoreAuraPreview() end
+            selectedType=unitType; ns.RefreshConfig()
+        end)
+        frameUI.units[unitType]=button; previous=button
+    end
+    for index,name in ipairs(FRAME_CATEGORIES) do
+        local button=MakeNavigationButton(framesPage,name,150); button:SetPoint("TOPLEFT",(index-1)*158,-112)
+        local panel=CreateFrame("Frame",nil,framesPage); panel:SetPoint("TOPLEFT",0,-158); panel:SetPoint("BOTTOMRIGHT",0,48)
+        frameUI.categories[name]={Button=button,Panel=panel}
+        button:SetScript("OnClick",function()
+            if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
+            if name==frameUI.category then return end
+            if name~="Indicators" then ClearStatusIconPreview() end
+            if frameUI.category=="Auras" then RestoreAuraPreview() end
+            if name=="Auras" then RestoreFramePreview() end
+            frameUI.category=name
+            ns.RefreshConfig()
+        end)
+    end
+end
+
+local function CreateFramesHeader()
+    local header=MakeFrameSection(framesPage,"",0,-44,868,54); frameUI.header=header
+    header.Title:ClearAllPoints(); header.Title:SetPoint("LEFT",16,0); header.Title:SetFont(FONT,14,"OUTLINE"); header.Title:SetTextColor(unpack(Skin.text))
+    local check=CreateFrame("CheckButton",nil,header,"UICheckButtonTemplate"); Skin.Check(check); check:SetSize(24,24); check:SetPoint("RIGHT",-260,0)
+    local label=check:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,12,"OUTLINE"); label:SetTextColor(unpack(Skin.text)); label:SetPoint("LEFT",check,"RIGHT",4,0); label:SetText("Enabled")
+    check:SetScript("OnClick",function(self)
+        if InCombatLockdown() then self:SetChecked(ns.ConfigSessionGetEnabled(selectedType)); return end
+        ns.ConfigSessionStageEnabled(selectedType,self:GetChecked() and true or false)
+        MarkPending(DISPLAY_NAMES[selectedType].." enable state staged.")
+        if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(selectedType,self:GetChecked()) end
+    end)
+    frameUI.enabled=check
+    frameLockButton=MakeButton(header,"Unlock Frames",170,28); frameLockButton:SetPoint("RIGHT",-16,0)
+    frameLockButton:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_RIGHT"); GameTooltip:SetText("Lock or unlock all MIUF frame movers."); GameTooltip:Show()
+    end)
+    frameLockButton:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    frameLockButton:SetScript("OnClick",function()
+        if not InCombatLockdown() then
+            local locked=not ns.AreFrameMoversLocked()
+            ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked)
+            if locked then ns.ShowConfigForPendingFrameChanges() end
+            ns.RefreshConfig()
+        end
+    end)
+end
+
+local function CreateFramesActions()
+    local reset=MakeButton(framesPage,"Reset Player",220,28); reset:SetPoint("BOTTOMLEFT",0,0); frameUI.reset=reset
+    reset:SetScript("OnClick",function()
+        if not InCombatLockdown() then
+            RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType)
+            MarkPending("Frame reset is pending."); ns.RefreshConfig()
+        end
+    end)
+    CreateRaidPreviewControls(framesPage)
 end
 
 local function CreateFramesPage()
-    framesPage=CreateFrame("Frame",nil,config); framesPage:SetPoint("TOPLEFT",160,-80); framesPage:SetPoint("BOTTOMRIGHT",-10,50)
-    local layout=MakeSection(framesPage,"Frame Layout",330,405); layout:SetPoint("TOPLEFT",20,-62)
-    local text=MakeSection(framesPage,"Text",345,315); text:SetPoint("TOPLEFT",365,-62)
-    local appearance=MakeSection(framesPage,"Appearance",345,175); appearance:SetPoint("TOPLEFT",365,-387)
-    local indicators=MakeSection(framesPage,"Indicators",330,285); indicators:SetPoint("TOPLEFT",20,-480)
-    CreateFrameLayoutControls(layout)
-    CreateGroupLayoutControls(layout)
-    CreateRaidPreviewControls(framesPage)
-    CreateTextControls(text)
-    CreateAppearanceControls(appearance)
-    CreateIndicatorControls(framesPage,indicators)
+    framesPage=CreateFrame("Frame",nil,config); framesPage:SetPoint("TOPLEFT",16,-106); framesPage:SetPoint("BOTTOMRIGHT",-16,64)
+    CreateFramesNavigation()
+    CreateFramesHeader()
+    CreateFrameLayoutControls(frameUI.categories.Layout.Panel)
+    CreateGroupLayoutControls(frameUI.categories.Layout.Panel)
+    CreateTextControls(frameUI.categories.Text.Panel)
+    CreateAppearanceControls(frameUI.categories.Appearance.Panel)
+    CreateIndicatorControls(frameUI.categories.Indicators.Panel)
+    CreateFramesActions()
+end
 
-    local reset=MakeButton(framesPage,"Reset Frame",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType); MarkPending("Frame reset is pending."); ns.RefreshConfig() end end)
-    frameLockButton=MakeButton(framesPage,"Unlock Frame Movers",145,28); frameLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); frameLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreFrameMoversLocked(); ns.SetFrameMoversLockedState(locked); ns.SetFrameMoversLocked(locked); if locked then ns.ShowConfigForPendingFrameChanges() end; ns.RefreshConfig() end end)
+local function CreateAuraDisplayControls(parent)
+    local panel=MakeFrameSection(parent,"Display",0,-82,426,112)
+    auraEnableButton=MakeButton(panel,"Enabled: On",150,26); auraEnableButton:SetPoint("TOPLEFT",18,-36)
+    auraEnableButton:SetScript("OnClick",function()
+        auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled)
+        if selectedType=="raid" then PreviewAuraSliders() end
+        RefreshAuraControls()
+        if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end
+    end)
+    auraTextButton=MakeButton(panel,"Cooldown Text: On",190,26); auraTextButton:SetPoint("TOPLEFT",198,-36)
+    auraTextButton:SetScript("OnClick",function()
+        auraWorking.showText=auraWorking.showText==false; StageAuraValue("showText",auraWorking.showText); RefreshAuraControls()
+    end)
+end
+
+local function CreateAuraSizeControls(parent)
+    local panel=MakeFrameSection(parent,"Size & Spacing",442,-82,426,112)
+    auraSizeSlider=MakeSlider(panel,"AuraIconSize","Icon Size",12,40,1,110); auraSizeSlider:SetPoint("TOPLEFT",18,-44)
+    auraSizeSlider:HookScript("OnValueChanged",function(_,v)
+        if not refreshing then StageAuraValue("iconSize",Round(v)); if selectedType=="raid" then PreviewAuraSliders() end end
+    end)
+    auraCountSlider=MakeSlider(panel,"AuraCount","Max Icons",1,12,1,110); auraCountSlider:SetPoint("TOPLEFT",158,-44)
+    auraCountSlider:HookScript("OnValueChanged",function(_,v)
+        if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end
+    end)
+    auraSpacingSlider=MakeSlider(panel,"AuraSpacing","Spacing",0,10,1,110); auraSpacingSlider:SetPoint("TOPLEFT",298,-44)
+    auraSpacingSlider:HookScript("OnValueChanged",function(_,v)
+        if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end
+    end)
+end
+
+local function CreateAuraPositionControls(parent)
+    local panel=MakeFrameSection(parent,"Position",0,-210,426,100)
+    local function StageAuraPosition()
+        if refreshing or not AuraAvailable(selectedType,selectedAura) then return end
+        StageAuraValue("xOffset",Round(auraXSlider:GetValue())); StageAuraValue("yOffset",Round(auraYSlider:GetValue()))
+        PreviewAuraSliders()
+    end
+    auraXSlider=MakeSlider(panel,"AuraXOffset","X Offset",-400,400,1,174); auraXSlider:SetPoint("TOPLEFT",18,-44); auraXSlider:HookScript("OnValueChanged",StageAuraPosition)
+    auraYSlider=MakeSlider(panel,"AuraYOffset","Y Offset",-400,400,1,174); auraYSlider:SetPoint("TOPLEFT",234,-44); auraYSlider:HookScript("OnValueChanged",StageAuraPosition)
+end
+
+local function CreateAuraLayoutControls(parent)
+    local panel=MakeFrameSection(parent,"Layout",442,-210,426,100)
+    auraAnchorButton=MakeButton(panel,"Anchor: Top",180,26); auraAnchorButton:SetPoint("TOPLEFT",18,-30)
+    auraAnchorButton:SetScript("OnClick",function()
+        auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls()
+    end)
+    auraGrowthButton=MakeButton(panel,"Growth: Right",180,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",8,0)
+    auraGrowthButton:SetScript("OnClick",function()
+        auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth)
+        if selectedType=="raid" then PreviewAuraSliders() end; RefreshAuraControls()
+    end)
+    local note=panel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,9,"OUTLINE"); note:SetTextColor(unpack(Skin.text))
+    note:SetPoint("TOPLEFT",18,-66); note:SetWidth(390); note:SetJustifyH("LEFT")
+    note:SetText("X/Y offsets are measured from this frame's Top or Bottom anchor edge."); note:SetTextColor(unpack(Skin.muted))
+end
+
+local function CreateBuffFilteringControls(parent)
+    buffFilterPanel=CreateFrame("Frame",nil,parent); buffFilterPanel:SetPoint("TOPLEFT",0,-322); buffFilterPanel:SetSize(868,42)
+    local check=CreateFrame("CheckButton",nil,buffFilterPanel,"UICheckButtonTemplate"); Skin.Check(check)
+    check:SetSize(24,24); check:SetPoint("TOPLEFT",10,-4); auraUI.filtering=check
+    local label=check:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,12,"OUTLINE"); label:SetTextColor(unpack(Skin.text)); label:SetPoint("LEFT",check,"RIGHT",2,0)
+    label:SetText("Enable Buff Filtering")
+    check:SetScript("OnClick",function(self)
+        if refreshing or selectedAura~="buffs" or not AuraAvailable(selectedType,"buffs") then return end
+        StageAuraValue("filteringEnabled",self:GetChecked() and true or false)
+        PreviewAuraSliders()
+    end)
+    check:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_RIGHT"); GameTooltip:SetText("Enable Buff Filtering")
+        GameTooltip:AddLine("On: your buffs from the profile-wide tracked list. Off: all helpful buffs on this frame.",0.8,0.8,0.8,true); GameTooltip:Show()
+    end)
+    check:SetScript("OnLeave",GameTooltip_Hide)
+    manageTrackedButton=MakeButton(buffFilterPanel,"Manage Tracked Buffs",180,24); manageTrackedButton:SetPoint("TOPLEFT",442,-4)
+    local scope=buffFilterPanel:CreateFontString(nil,"OVERLAY"); scope:SetFont(FONT,10,"OUTLINE"); scope:SetTextColor(unpack(Skin.text))
+    scope:SetPoint("TOPLEFT",634,-11); scope:SetText("Tracked list: profile-wide"); scope:SetTextColor(unpack(Skin.muted))
+end
+
+local function CreateTrackedBuffManager()
+    trackedBuffWindow=CreateFrame("Frame","MIUF_TrackedBuffWindow",UIParent,"BackdropTemplate"); trackedBuffWindow:SetSize(620,300); trackedBuffWindow:SetPoint("CENTER"); trackedBuffWindow:SetFrameStrata("DIALOG"); trackedBuffWindow:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(trackedBuffWindow,Skin.background); trackedBuffWindow:Hide()
+    local function Choice(x,y)
+        local b=CreateFrame("Button",nil,trackedBuffWindow,"BackdropTemplate"); b:SetSize(34,34); b:SetPoint("TOPLEFT",x,y); b:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Button(b); b.icon=b:CreateTexture(nil,"ARTWORK"); b.icon:SetPoint("TOPLEFT",2,-2); b.icon:SetPoint("BOTTOMRIGHT",-2,2); return b
+    end
+    for i=1,24 do local col=(i-1)%12; local row=math.floor((i-1)/12); seenBuffButtons[i]=Choice(14+col*40,-60-row*40); trackedBuffButtons[i]=Choice(14+col*40,-168-row*40) end
+    local seenTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); seenTitle:SetFont(FONT,11,"OUTLINE"); seenTitle:SetTextColor(unpack(Skin.text)); seenTitle:SetPoint("TOPLEFT",14,-42); seenTitle:SetText("Seen Buffs - click to track")
+    local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetTextColor(unpack(Skin.text)); trackedTitle:SetPoint("TOPLEFT",14,-150); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
+    local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); auraUI.returnFromPicker=true; config:Show() end)
+    local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
+    manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
+end
+
+local function CreateAuraActions(parent)
+    auraLockButton=MakeButton(parent,"Unlock Aura Movers",180,26); auraLockButton:SetPoint("TOPRIGHT",0,0)
+    auraLockButton:SetScript("OnClick",function()
+        if not InCombatLockdown() then
+            local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig()
+        end
+    end)
+    local reset=MakeButton(parent,"Reset Player Buffs",240,28); reset:SetPoint("BOTTOMLEFT",0,0); auraUI.reset=reset
+    reset:SetScript("OnClick",function()
+        if not InCombatLockdown() then
+            RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end
+            ns.ConfigSessionStageAuraReset(selectedType,selectedAura); MarkPending("Aura reset is pending."); ns.RefreshConfig()
+        end
+    end)
 end
 
 local function CreateAurasPage()
-    aurasPage=CreateFrame("Frame",nil,config); aurasPage:SetPoint("TOPLEFT",160,-80); aurasPage:SetPoint("BOTTOMRIGHT",-10,50)
-    auraLabel=aurasPage:CreateFontString(nil,"OVERLAY"); auraLabel:SetFont(FONT,13,"OUTLINE"); auraLabel:SetPoint("TOPLEFT",20,-70)
-    local prev
+    aurasPage=frameUI.categories.Auras.Panel
+    auraLabel=aurasPage:CreateFontString(nil,"OVERLAY"); auraLabel:SetFont(FONT,13,"OUTLINE"); auraLabel:SetTextColor(unpack(Skin.text)); auraLabel:SetPoint("TOPLEFT",0,-6)
     for _,auraType in ipairs(AURA_TYPES) do
-        local b=MakeButton(aurasPage,AURA_NAMES[auraType],105,26); if prev then b:SetPoint("LEFT",prev,"RIGHT",7,0) else b:SetPoint("TOPLEFT",20,-96) end
-        b:SetScript("OnClick",function() RestoreAuraPreview(); selectedAura=auraType; ns.RefreshConfig() end); auraButtons[auraType]=b; prev=b
+        local button=MakeNavigationButton(aurasPage,AURA_NAMES[auraType],140)
+        button:SetScript("OnClick",function() RestoreAuraPreview(); selectedAura=auraType; ns.RefreshConfig() end)
+        auraButtons[auraType]=button
     end
-    auraEnableButton=MakeButton(aurasPage,"Enabled: On",125,26); auraEnableButton:SetPoint("TOPLEFT",20,-132); auraEnableButton:SetScript("OnClick",function() auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled); if selectedType=="raid" then PreviewAuraSliders() end; RefreshAuraControls(); if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end end)
-    auraTextButton=MakeButton(aurasPage,"Text: On",110,26); auraTextButton:SetPoint("LEFT",auraEnableButton,"RIGHT",7,0); auraTextButton:SetScript("OnClick",function() auraWorking.showText=auraWorking.showText==false; StageAuraValue("showText",auraWorking.showText); RefreshAuraControls() end)
-    auraSizeSlider=MakeSlider(aurasPage,"AuraIconSize","Icon size",12,40,1,180); auraSizeSlider:SetPoint("TOPLEFT",35,-195); auraSizeSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("iconSize",Round(v)); if selectedType=="raid" then PreviewAuraSliders() end end end)
-    auraCountSlider=MakeSlider(aurasPage,"AuraCount","Max icons",1,12,1,180); auraCountSlider:SetPoint("TOPLEFT",260,-195); auraCountSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("maxCount",Round(v)); PreviewAuraSliders() end end)
-    auraSpacingSlider=MakeSlider(aurasPage,"AuraSpacing","Spacing",0,10,1,180); auraSpacingSlider:SetPoint("TOPLEFT",485,-195); auraSpacingSlider:HookScript("OnValueChanged",function(_,v) if not refreshing then StageAuraValue("spacing",Round(v)); PreviewAuraSliders() end end)
-    local function StageAuraPosition()
-        if refreshing or not AuraAvailable(selectedType,selectedAura) then return end
-        local x,y=Round(auraXSlider:GetValue()),Round(auraYSlider:GetValue())
-        StageAuraValue("xOffset",x); StageAuraValue("yOffset",y); PreviewAuraSliders()
-    end
-    auraXSlider=MakeSlider(aurasPage,"AuraXOffset","X offset",-400,400,1,180); auraXSlider:SetPoint("TOPLEFT",35,-275); auraXSlider:HookScript("OnValueChanged",StageAuraPosition)
-    auraYSlider=MakeSlider(aurasPage,"AuraYOffset","Y offset",-400,400,1,180); auraYSlider:SetPoint("TOPLEFT",260,-275); auraYSlider:HookScript("OnValueChanged",StageAuraPosition)
-    auraAnchorButton=MakeButton(aurasPage,"Anchor: Top",125,26); auraAnchorButton:SetPoint("TOPLEFT",485,-264); auraAnchorButton:SetScript("OnClick",function() auraWorking.anchor=Cycle(auraWorking.anchor,ANCHOR_ORDER); StageAuraValue("anchor",auraWorking.anchor); PreviewAuraSliders(); RefreshAuraControls() end)
-    auraGrowthButton=MakeButton(aurasPage,"Grow: Right",125,26); auraGrowthButton:SetPoint("LEFT",auraAnchorButton,"RIGHT",7,0); auraGrowthButton:SetScript("OnClick",function() auraWorking.growth=Cycle(auraWorking.growth,GROWTH_ORDER); StageAuraValue("growth",auraWorking.growth); if selectedType=="raid" then PreviewAuraSliders() end; RefreshAuraControls() end)
-    local anchorNote=aurasPage:CreateFontString(nil,"OVERLAY"); anchorNote:SetFont(FONT,10,"OUTLINE"); anchorNote:SetPoint("TOPLEFT",35,-323); anchorNote:SetWidth(620); anchorNote:SetJustifyH("LEFT"); anchorNote:SetText("X/Y offsets are measured from the selected unit frame's Top or Bottom anchor edge."); anchorNote:SetTextColor(0.7,0.76,0.82)
-    buffFilterPanel=CreateFrame("Frame",nil,aurasPage); buffFilterPanel:SetPoint("TOPLEFT",20,-365); buffFilterPanel:SetSize(650,72)
-    local note=buffFilterPanel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,11,"OUTLINE"); note:SetPoint("TOPLEFT"); note:SetText("Tracked Buffs: only buffs you choose are shown on normal buff frames.")
-    manageTrackedButton=MakeButton(buffFilterPanel,"Manage Tracked Buffs",180,24); manageTrackedButton:SetPoint("TOPLEFT",0,-25)
-    trackedBuffWindow=CreateFrame("Frame","MIUF_TrackedBuffWindow",UIParent,"BackdropTemplate"); trackedBuffWindow:SetSize(620,300); trackedBuffWindow:SetPoint("CENTER"); trackedBuffWindow:SetFrameStrata("DIALOG"); trackedBuffWindow:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); trackedBuffWindow:SetBackdropColor(0.035,0.04,0.05,0.98); trackedBuffWindow:Hide()
-    local function Choice(x,y)
-        local b=CreateFrame("Button",nil,trackedBuffWindow,"BackdropTemplate"); b:SetSize(34,34); b:SetPoint("TOPLEFT",x,y); b:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); b:SetBackdropColor(0.05,0.05,0.05,0.9); b.icon=b:CreateTexture(nil,"ARTWORK"); b.icon:SetPoint("TOPLEFT",2,-2); b.icon:SetPoint("BOTTOMRIGHT",-2,2); return b
-    end
-    for i=1,24 do local col=(i-1)%12; local row=math.floor((i-1)/12); seenBuffButtons[i]=Choice(14+col*40,-60-row*40); trackedBuffButtons[i]=Choice(14+col*40,-168-row*40) end
-    local seenTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); seenTitle:SetFont(FONT,11,"OUTLINE"); seenTitle:SetPoint("TOPLEFT",14,-42); seenTitle:SetText("Seen Buffs - click to track")
-    local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetPoint("TOPLEFT",14,-150); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
-    local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
-    local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
-    manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
-    local reset=MakeButton(aurasPage,"Reset Aura",105,28); reset:SetPoint("BOTTOMLEFT",20,8); reset:SetScript("OnClick",function() if not InCombatLockdown() then RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end; ns.ConfigSessionStageAuraReset(selectedType,selectedAura); MarkPending("Aura reset is pending."); ns.RefreshConfig() end end)
-    auraLockButton=MakeButton(aurasPage,"Unlock Aura Movers",145,28); auraLockButton:SetPoint("LEFT",reset,"RIGHT",8,0); auraLockButton:SetScript("OnClick",function() if not InCombatLockdown() then local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig() end end)
+    CreateAuraDisplayControls(aurasPage)
+    CreateAuraSizeControls(aurasPage)
+    CreateAuraPositionControls(aurasPage)
+    CreateAuraLayoutControls(aurasPage)
+    CreateBuffFilteringControls(aurasPage)
+    CreateTrackedBuffManager()
+    CreateAuraActions(aurasPage)
 end
 
 local function CreateProfilesPage()
     profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",160,-80); profilesPage:SetPoint("BOTTOMRIGHT",-10,50)
     local section=MakeSection(profilesPage,"Profile Management",690,430); section:SetPoint("TOPLEFT",20,-62)
 
-    profileCurrentLabel=section:CreateFontString(nil,"OVERLAY"); profileCurrentLabel:SetFont(FONT,14,"OUTLINE"); profileCurrentLabel:SetPoint("TOPLEFT",18,-38)
-    profileCharacterLabel=section:CreateFontString(nil,"OVERLAY"); profileCharacterLabel:SetFont(FONT,10,"OUTLINE"); profileCharacterLabel:SetPoint("TOPLEFT",18,-62); profileCharacterLabel:SetTextColor(0.7,0.76,0.82)
+    profileCurrentLabel=section:CreateFontString(nil,"OVERLAY"); profileCurrentLabel:SetFont(FONT,14,"OUTLINE"); profileCurrentLabel:SetTextColor(unpack(Skin.text)); profileCurrentLabel:SetPoint("TOPLEFT",18,-38)
+    profileCharacterLabel=section:CreateFontString(nil,"OVERLAY"); profileCharacterLabel:SetFont(FONT,10,"OUTLINE"); profileCharacterLabel:SetTextColor(unpack(Skin.text)); profileCharacterLabel:SetPoint("TOPLEFT",18,-62); profileCharacterLabel:SetTextColor(unpack(Skin.muted))
 
-    local listTitle=section:CreateFontString(nil,"OVERLAY"); listTitle:SetFont(FONT,11,"OUTLINE"); listTitle:SetPoint("TOPLEFT",18,-96); listTitle:SetText("Profiles")
+    local listTitle=section:CreateFontString(nil,"OVERLAY"); listTitle:SetFont(FONT,11,"OUTLINE"); listTitle:SetTextColor(unpack(Skin.text)); listTitle:SetPoint("TOPLEFT",18,-96); listTitle:SetText("Profiles")
     for i=1,10 do
         local b=MakeButton(section,"",220,26); b:SetPoint("TOPLEFT",18,-118-((i-1)*29)); b:SetScript("OnClick",function(self)
             selectedProfileName=self.ProfileName
@@ -678,8 +1040,8 @@ local function CreateProfilesPage()
         end); profileButtons[i]=b
     end
 
-    local nameLabel=section:CreateFontString(nil,"OVERLAY"); nameLabel:SetFont(FONT,11,"OUTLINE"); nameLabel:SetPoint("TOPLEFT",275,-96); nameLabel:SetText("Profile name")
-    profileNameBox=CreateFrame("EditBox",nil,section,"InputBoxTemplate"); profileNameBox:SetSize(250,24); profileNameBox:SetPoint("TOPLEFT",275,-118); profileNameBox:SetAutoFocus(false); profileNameBox:SetMaxLetters(40)
+    local nameLabel=section:CreateFontString(nil,"OVERLAY"); nameLabel:SetFont(FONT,11,"OUTLINE"); nameLabel:SetTextColor(unpack(Skin.text)); nameLabel:SetPoint("TOPLEFT",275,-96); nameLabel:SetText("Profile name")
+    profileNameBox=CreateFrame("EditBox",nil,section,"InputBoxTemplate"); profileNameBox:SetSize(250,24); profileNameBox:SetPoint("TOPLEFT",275,-118); profileNameBox:SetAutoFocus(false); profileNameBox:SetMaxLetters(40); Skin.Edit(profileNameBox)
     profileNameBox:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
     profileNameBox:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
 
@@ -724,17 +1086,17 @@ local function CreateProfilesPage()
         selectedProfileName=ns.GetActiveProfileName(); SetProfileStatus("Deleted "..source..".",false); RefreshProfilesControls()
     end)
 
-    local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetPoint("TOPLEFT",275,-292); note:SetWidth(380); note:SetJustifyH("LEFT")
+    local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text)); note:SetPoint("TOPLEFT",275,-292); note:SetWidth(380); note:SetJustifyH("LEFT")
     note:SetText("Create New starts from MythInc defaults. Copy Current duplicates every setting in the active profile. Each character remembers which profile it uses. Switching profiles reloads the UI so secure frames and aura containers rebuild from one consistent settings set.")
-    note:SetTextColor(0.7,0.76,0.82)
+    note:SetTextColor(unpack(Skin.muted))
 
-    profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,10,"OUTLINE"); profileActionStatus:SetPoint("TOPLEFT",275,-365); profileActionStatus:SetWidth(380); profileActionStatus:SetJustifyH("LEFT")
+    profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,10,"OUTLINE"); profileActionStatus:SetTextColor(unpack(Skin.text)); profileActionStatus:SetPoint("TOPLEFT",275,-365); profileActionStatus:SetWidth(380); profileActionStatus:SetJustifyH("LEFT")
 end
 
 local function CreateConfig()
     if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
-    local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and selectedPage=="auras" and selectedAura=="buffs" then RefreshTrackedWindow() end end)
-    config:HookScript("OnShow",function() applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
+    local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and IsAurasSelected() and selectedAura=="buffs" then RefreshTrackedWindow() end end)
+    config:HookScript("OnShow",function() ClearStatusIconPreview(); frameUI.category=auraUI.returnFromPicker and "Auras" or "Layout"; auraUI.returnFromPicker=nil; applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
 end
 
 function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
@@ -756,7 +1118,7 @@ lockMoversButton:Hide()
 function ns.UpdateLockMoversButton()
     local frameLocked,auraLocked=ns.AreFrameMoversLocked(),ns.AreAuraMoversLocked()
     lockMoversButton:SetShown(not InCombatLockdown() and (not frameLocked or not auraLocked))
-    if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frame Movers" or "Lock Frame Movers") end
+    if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frames" or "Lock Frames") end
     if auraLockButton then auraLockButton:SetText(auraLocked and "Unlock Aura Movers" or "Lock Aura Movers") end
 end
 
