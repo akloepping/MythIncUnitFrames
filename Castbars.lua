@@ -2,6 +2,10 @@ local ADDON_NAME, ns = ...
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
+local timeFormatter = C_StringUtil.CreateSecondsFormatter()
+timeFormatter:SetDefaultAbbreviation(Enum.SecondsFormatterAbbreviation.OneLetter)
+timeFormatter:SetMinInterval(Enum.SecondsFormatterInterval.Seconds)
+timeFormatter:SetMillisecondsThreshold(60)
 
 local CASTBAR_TYPES = {
     player = true,
@@ -11,10 +15,10 @@ local CASTBAR_TYPES = {
 }
 
 local function SetInterruptibleVisual(bar, notInterruptible)
-    if bar.LockText and bar.LockText.SetAlphaFromBoolean then
-        bar.LockText:SetAlphaFromBoolean(notInterruptible, 1, 0)
+    if bar.Shield.SetAlphaFromBoolean then
+        bar.Shield:SetAlphaFromBoolean(notInterruptible, 1, 0)
     elseif not canaccessvalue or canaccessvalue(notInterruptible) then
-        bar.LockText:SetShown(notInterruptible and true or false)
+        bar.Shield:SetAlpha(notInterruptible and 1 or 0)
     end
 
     if not canaccessvalue or canaccessvalue(notInterruptible) then
@@ -28,16 +32,28 @@ local function SetInterruptibleVisual(bar, notInterruptible)
     end
 end
 
+local function ClearCastbarVisuals(bar)
+    if not bar then return end
+    bar.Time.binding:SetToDefaults()
+    bar.Time.binding:SetEnabled(false)
+    bar.Time:SetText("")
+    bar.Text:SetText("")
+    bar.Icon:SetTexture(nil)
+    bar.Shield:SetAlpha(0)
+    bar.Spark:Hide()
+end
+
 local function RefreshCastbar(frame)
     local holder = frame and frame.CastbarHolder
     local bar = frame and frame.Castbar
     local unit = ns.GetFrameDisplayUnit(frame)
     if not holder or not bar or not unit or not UnitExists(unit) then
+        ClearCastbarVisuals(bar)
         if holder then holder:Hide() end
         return
     end
 
-    local name, displayName, _, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
+    local name, displayName, texture, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
     local duration, direction
 
     if name then
@@ -45,7 +61,7 @@ local function RefreshCastbar(frame)
         direction = Enum.StatusBarTimerDirection.ElapsedTime
     else
         local isEmpowered
-        name, displayName, _, _, _, _, notInterruptible, _, isEmpowered = UnitChannelInfo(unit)
+        name, displayName, texture, _, _, _, notInterruptible, _, isEmpowered = UnitChannelInfo(unit)
         if name then
             if isEmpowered and UnitEmpoweredChannelDuration then
                 duration = UnitEmpoweredChannelDuration(unit, true)
@@ -58,6 +74,7 @@ local function RefreshCastbar(frame)
     end
 
     if not name or not duration then
+        ClearCastbarVisuals(bar)
         holder:Hide()
         return
     end
@@ -69,9 +86,17 @@ local function RefreshCastbar(frame)
     end
 
     bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate, direction)
+    bar.Icon:SetTexture(texture)
+    local binding = bar.Time.binding
+    binding:SetFontString(bar.Time)
+    binding:SetFormatter(timeFormatter)
+    binding:SetDuration(duration)
+    binding:UpdateFontString()
+    bar.Spark:Show()
     SetInterruptibleVisual(bar, notInterruptible)
     bar:Show()
     holder:Show()
+    binding:SetEnabled(holder:IsVisible())
 end
 
 ns.UpdateFrameCastbar = RefreshCastbar
@@ -90,7 +115,7 @@ local function CreateCastbar(frame)
     holder:Hide()
 
     local bar = CreateFrame("StatusBar", nil, holder)
-    bar:SetPoint("TOPLEFT", 1, -1)
+    bar:SetPoint("TOPLEFT", 19, -1)
     bar:SetPoint("BOTTOMRIGHT", -1, 1)
     bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("flat") or FLAT)
     bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
@@ -99,20 +124,50 @@ local function CreateCastbar(frame)
     background:SetAllPoints(bar)
     background:SetColorTexture(0.08, 0.08, 0.08, 1)
 
+    local icon = holder:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", holder, "LEFT", 1, 0)
+    bar.Icon = icon
+
+    local shield = bar:CreateTexture(nil, "OVERLAY")
+    shield:SetAtlas("ui-castingbar-shield", false)
+    shield:SetSize(14, 16)
+    shield:SetPoint("RIGHT", -1, 0)
+    shield:SetAlpha(0)
+    bar.Shield = shield
+
+    local timer = bar:CreateFontString(nil, "OVERLAY")
+    timer:SetFont(FONT, 9, "OUTLINE")
+    timer:SetSize(40, 16)
+    timer:SetPoint("RIGHT", shield, "LEFT", -2, 0)
+    timer:SetJustifyH("RIGHT")
+    timer:SetWordWrap(false)
+    timer.binding = C_DurationUtil.CreateDurationTextBinding()
+    timer.binding:SetEnabled(false)
+    bar.Time = timer
+
+    -- Follow the native fill edge without inspecting restricted progress values.
+    local spark = bar:CreateTexture(nil, "ARTWORK")
+    spark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+    spark:SetBlendMode("ADD")
+    spark:SetSize(6, 16)
+    spark:SetPoint("CENTER", bar:GetStatusBarTexture(), "RIGHT", 0, 0)
+    spark:Hide()
+    bar.Spark = spark
+
     local text = bar:CreateFontString(nil, "OVERLAY")
     text:SetFont(FONT, 10, "OUTLINE")
     text:SetPoint("LEFT", 5, 0)
-    text:SetPoint("RIGHT", -38, 0)
+    text:SetPoint("RIGHT", timer, "LEFT", -4, 0)
     text:SetJustifyH("LEFT")
     text:SetWordWrap(false)
     bar.Text = text
 
-    local lockText = bar:CreateFontString(nil, "OVERLAY")
-    lockText:SetFont(FONT, 8, "OUTLINE")
-    lockText:SetPoint("RIGHT", -4, 0)
-    lockText:SetText("LOCK")
-    lockText:Hide()
-    bar.LockText = lockText
+    holder:SetScript("OnHide", function() timer.binding:SetEnabled(false) end)
+    holder:SetScript("OnShow", function()
+        timer.binding:SetEnabled(true)
+        timer.binding:UpdateFontString()
+    end)
 
     frame.CastbarHolder = holder
     frame.Castbar = bar
