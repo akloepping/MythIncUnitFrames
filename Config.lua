@@ -113,9 +113,31 @@ local function DisplayName(catalog,key,fallback)
 end
 
 local function MakeButton(parent,text,width,height)
-    local b=CreateFrame("Button",nil,parent,"UIPanelButtonTemplate,BackdropTemplate"); b:SetSize(width,height); b:SetText(text)
-    b:SetNormalTexture(""); b:SetPushedTexture(""); b:SetHighlightTexture(""); b:SetDisabledTexture("")
-    Skin.Button(b); return b
+    local b=CreateFrame("Button",nil,parent,"BackdropTemplate")
+    b:SetSize(width,height)
+
+    local label=b:CreateFontString(nil,"OVERLAY")
+    label:SetFont(FONT,11,"OUTLINE")
+    label:SetTextColor(unpack(Skin.text))
+    label:SetPoint("CENTER")
+
+    b.MIUF_SkinLabel=label
+
+    function b:SetText(value)
+        label:SetText(value)
+    end
+
+    function b:GetText()
+        return label:GetText()
+    end
+
+    function b:GetFontString()
+        return label
+    end
+
+    b:SetText(text)
+    Skin.Button(b)
+    return b
 end
 
 local function MakeSlider(parent,name,label,minValue,maxValue,step,width)
@@ -682,12 +704,12 @@ local function CreateShell()
     local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
     frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() SelectPage("frames") end)
     profileTab=MakeButton(config,"Profiles",110,28); profileTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); profileTab:SetScript("OnClick",function() SelectPage("profiles") end)
-    applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",170,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
+    applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",16,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
     revertChangesButton=MakeButton(config,"Revert Changes",120,28); revertChangesButton:SetPoint("LEFT",applyChangesButton,"RIGHT",8,0); revertChangesButton:SetEnabled(false); revertChangesButton:SetScript("OnClick",RevertChanges)
-    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMLEFT",16,20); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
+    local resetAll=MakeButton(config,"Reset All",90,26); resetAll:SetPoint("BOTTOMRIGHT",-16,19); resetAll:SetScript("OnClick",function() if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview()
         ns.ConfigSessionStageResetAll(); MarkPending("Reset of all configuration settings is pending."); ns.RefreshConfig() end end)
     selectedLabel=config:CreateFontString(nil,"OVERLAY"); selectedLabel:SetFont(FONT,14,"OUTLINE"); selectedLabel:SetTextColor(unpack(Skin.text)); selectedLabel:SetPoint("TOPLEFT",180,-94)
-    statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetTextColor(unpack(Skin.text)); statusText:SetPoint("BOTTOMLEFT",520,22); statusText:SetWidth(355); statusText:SetJustifyH("LEFT")
+    statusText=config:CreateFontString(nil,"OVERLAY"); statusText:SetFont(FONT,9,"OUTLINE"); statusText:SetTextColor(unpack(Skin.text)); statusText:SetPoint("LEFT",config,"BOTTOMLEFT",280,32); statusText:SetWidth(270); statusText:SetJustifyH("LEFT")
 end
 
 local function CreateIndicatorSection(parent,title,prefix,offsetLimit,toggleKey)
@@ -922,7 +944,7 @@ local function CreateFramesHeader()
 end
 
 local function CreateFramesActions()
-    local reset=MakeButton(framesPage,"Reset Player",220,28); reset:SetPoint("BOTTOMLEFT",0,0); frameUI.reset=reset
+    local reset=MakeButton(framesPage,"Reset Player",220,28); reset:SetPoint("BOTTOMRIGHT",config,"BOTTOMRIGHT",-114,18); frameUI.reset=reset
     reset:SetScript("OnClick",function()
         if not InCombatLockdown() then
             RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType)
@@ -1132,7 +1154,7 @@ local function CreateProfilesPage()
     end)
 
     local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text)); note:SetPoint("TOPLEFT",275,-292); note:SetWidth(380); note:SetJustifyH("LEFT")
-    note:SetText("Create New starts from MythInc defaults. Copy Current duplicates every setting in the active profile. Each character remembers which profile it uses. Switching profiles reloads the UI so secure frames and aura containers rebuild from one consistent settings set.")
+    note:SetText("Create New starts from defaults. Copy Current duplicates every setting in the active profile. Each character remembers which profile it uses. Switching profiles reloads the UI so secure frames and aura containers rebuild from one consistent settings set.")
     note:SetTextColor(unpack(Skin.muted))
 
     profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,10,"OUTLINE"); profileActionStatus:SetTextColor(unpack(Skin.text)); profileActionStatus:SetPoint("TOPLEFT",275,-365); profileActionStatus:SetWidth(380); profileActionStatus:SetJustifyH("LEFT")
