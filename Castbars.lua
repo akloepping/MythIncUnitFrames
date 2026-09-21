@@ -266,6 +266,34 @@ local function HandleCastEvent(frame, event, unit, _, _, arg4, arg5, arg6)
     end
 end
 
+-- Configuration-only geometry. Never refresh cast state, visibility or bindings.
+function ns.ApplyCastbarGeometry(frame, settings)
+    if InCombatLockdown and InCombatLockdown() then return end
+    local holder, bar = frame.CastbarHolder, frame.Castbar
+    if not holder or not bar or not settings then return end
+    local height, x, y = settings.height, settings.xOffset, settings.yOffset
+    holder:ClearAllPoints()
+    holder:SetHeight(height)
+    holder:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", x, y)
+    if settings.width == 0 then
+        holder:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", x, y)
+    else
+        holder:SetWidth(settings.width)
+    end
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", height + 1, -1)
+    bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    bar.Icon:SetSize(height - 2, height - 2)
+    bar.Time:SetHeight(height - 2)
+    bar.Spark:SetHeight(height - 2)
+end
+
+function ns.ApplyCastbarLayout(unitType, settings)
+    for _, frame in pairs(ns.frames or {}) do
+        if frame.MIUF_UnitType == unitType then ns.ApplyCastbarGeometry(frame, settings) end
+    end
+end
+
 local function CreateCastbar(frame)
     if not frame or frame.Castbar or not CASTBAR_TYPES[frame.MIUF_UnitType] then return end
 
@@ -301,7 +329,8 @@ local function CreateCastbar(frame)
 
     local shield = bar:CreateTexture(nil, "OVERLAY")
     shield:SetAtlas("ui-castingbar-shield", false)
-    shield:SetSize(14, 16)
+    shield:SetVertexColor(1, 0, 0, 1)
+    shield:SetSize(18, 20)
     shield:SetPoint("RIGHT", -1, 0)
     shield:SetAlpha(0)
     bar.Shield = shield
@@ -348,6 +377,7 @@ local function CreateCastbar(frame)
 
     frame.CastbarHolder = holder
     frame.Castbar = bar
+    if ns.GetCastbarLayout then ns.ApplyCastbarGeometry(frame, ns.GetCastbarLayout(frame.MIUF_UnitType)) end
 
     local events = CreateFrame("Frame")
     ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_START", frame)

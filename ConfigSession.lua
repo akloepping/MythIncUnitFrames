@@ -45,6 +45,7 @@ function ns.ConfigSessionIsDirty()
     for unitType,values in pairs(pendingFrameSettings) do
         if MatchesSaved(values.size,ns.GetSize(unitType))
             and values.powerPercent==ns.GetPowerPercent(unitType)
+            and MatchesSaved(values.castbar,ns.GetCastbarLayout(unitType))
             and MatchesSaved(values.appearance,ns.GetAppearance(unitType)) then
             pendingFrameSettings[unitType]=nil
         end
@@ -92,6 +93,7 @@ function ns.ConfigSessionGetFrame(unitType)
     return CopyValues(pendingFrameSettings[unitType] or {
         size=ns.GetSize(unitType), powerPercent=ns.GetPowerPercent(unitType),
         appearance=ns.GetAppearance(unitType),
+        castbar=ns.GetCastbarLayout(unitType),
     })
 end
 
@@ -107,7 +109,12 @@ end
 
 function ns.ConfigSessionStageFrame(unitType,values)
     EnsureProfile()
-    pendingFrameSettings[unitType]=CopyValues(values)
+    local snapshot=CopyValues(values)
+    if snapshot.castbar==nil then
+        local castbar=(pendingFrameSettings[unitType] or {}).castbar or ns.GetCastbarLayout(unitType)
+        snapshot.castbar=castbar and CopyValues(castbar)
+    end
+    pendingFrameSettings[unitType]=snapshot
 end
 
 function ns.ConfigSessionStageGroup(unitType,values)
@@ -143,6 +150,7 @@ function ns.ConfigSessionStageFrameReset(unitType)
         size=CopyValues(ns.defaultSizes[unitType]),
         powerPercent=ns.defaultBarLayout[unitType].powerPercent,
         appearance=CopyValues(ns.defaultAppearance[unitType]),
+        castbar=ns.defaultBarLayout[unitType].castbar and CopyValues(ns.defaultBarLayout[unitType].castbar),
     }
     if ns.defaultGroupLayout[unitType] then
         pendingGroupLayouts[unitType]=CopyValues(ns.defaultGroupLayout[unitType])
@@ -200,6 +208,7 @@ local function BuildChangeSummary()
         Record(unitType,"size",ChangedFields(values.size,ns.GetSize(unitType)))
         if values.powerPercent~=ns.GetPowerPercent(unitType) then Record(unitType,"powerBar",{powerPercent=true}) end
         Record(unitType,"appearance",ChangedFields(values.appearance,ns.GetAppearance(unitType)))
+        Record(unitType,"castbar",ChangedFields(values.castbar,ns.GetCastbarLayout(unitType)))
     end
     for unitType,values in pairs(pendingGroupLayouts) do
         local fields=ChangedFields(values,ns.GetGroupLayout(unitType))
@@ -248,6 +257,7 @@ function ns.ConfigSessionCommit()
         ns.SaveSize(unitType,values.size.width,values.size.height)
         ns.SavePowerPercent(unitType,values.powerPercent)
         ns.SaveAppearance(unitType,values.appearance)
+        if values.castbar then ns.SaveCastbarLayout(unitType,values.castbar) end
     end
     for key,value in pairs(pendingPositions) do ns.SavePosition(key,value.point,value.relativePoint,value.x,value.y) end
     for unitType,values in pairs(pendingGroupLayouts) do ns.SaveGroupLayout(unitType,values) end
@@ -268,6 +278,7 @@ function ns.ApplySavedConfiguration(summary)
     -- Saved-list and suppression hooks already ran during commit.
     for unitType,changes in pairs(summary.frameTypes) do
         if changes.size or changes.powerBar or changes.appearance then ns.ApplySavedFrameSettings(unitType) end
+        if changes.castbar and ns.ApplyCastbarLayout then ns.ApplyCastbarLayout(unitType,ns.GetCastbarLayout(unitType)) end
     end
     for unitType,changes in pairs(summary.frameTypes) do
         if changes.positions and unitType~="raid" then ns.ApplySavedFramePositions(changes.positions) end
@@ -326,7 +337,7 @@ function ns.ConfigSessionRevert()
         pendingPositions,pendingTrackedBuffs,hasPendingChanges,sessionProfile}
     local summary={profileName=ns.GetActiveProfileName(),frameTypes={}}
     for unitType in pairs(ns.defaultSizes) do
-        summary.frameTypes[unitType]={size=true,appearance=true,powerBar=true,groupLayout=true,positions={}}
+        summary.frameTypes[unitType]={size=true,appearance=true,powerBar=true,castbar=true,groupLayout=true,positions={}}
     end
     for key in pairs(ns.defaultPositions) do
         local unitType=key:match("^party%d+$") and "party" or (key:match("^boss%d+$") and "boss" or key)

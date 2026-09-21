@@ -42,8 +42,12 @@ local defaultGroupLayout = {
 }
 
 local defaultBarLayout, defaultAppearance, defaultAuraLayout = {}, {}, {}
+local CASTBAR_TYPES = {player=true,target=true,focus=true,boss=true}
 for unitType in pairs(defaultSizes) do
     defaultBarLayout[unitType] = { powerPercent = 22 }
+    if CASTBAR_TYPES[unitType] then
+        defaultBarLayout[unitType].castbar = {width=0,height=18,xOffset=0,yOffset=-3}
+    end
     defaultAppearance[unitType] = {
         fontSize = unitType == "party" and 11 or 12,
         fontFace = "friz",
@@ -354,6 +358,35 @@ function ns.SaveSize(unitType, width, height)
 end
 
 function ns.GetPowerPercent(unitType) local profile = ActiveProfile(); return profile.barLayout[unitType].powerPercent end
+local function CastbarNumber(value, fallback, minimum, maximum)
+    value=tonumber(value)
+    if not value or value~=value then return fallback end
+    return math.floor(math.max(minimum,math.min(maximum,value))+0.5)
+end
+
+function ns.NormalizeCastbarLayout(values)
+    values=type(values)=="table" and values or {}
+    local width=tonumber(values.width)
+    return {
+        -- Zero means inherited width; it is never used as a pixel dimension.
+        width=width and width~=0 and CastbarNumber(width,0,100,600) or 0,
+        height=CastbarNumber(values.height,18,18,40),
+        xOffset=CastbarNumber(values.xOffset,0,-300,300),
+        yOffset=CastbarNumber(values.yOffset,-3,-300,300),
+    }
+end
+
+function ns.GetCastbarLayout(unitType)
+    if not CASTBAR_TYPES[unitType] then return nil end
+    return ns.NormalizeCastbarLayout(ActiveProfile().barLayout[unitType].castbar)
+end
+
+function ns.SaveCastbarLayout(unitType, values)
+    if CASTBAR_TYPES[unitType] then
+        ActiveProfile().barLayout[unitType].castbar=ns.NormalizeCastbarLayout(values)
+    end
+end
+
 function ns.SavePowerPercent(unitType, percent)
     local profile = ActiveProfile(); profile.barLayout[unitType].powerPercent = math.floor(percent + 0.5)
 end

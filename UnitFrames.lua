@@ -76,6 +76,7 @@ local function BuildFrameState(unitType, overrides)
     local savedSize = ns.GetSize(unitType) or {}
     local savedAppearance = ns.GetAppearance(unitType) or {}
     local state = { size = { width = savedSize.width, height = savedSize.height }, powerPercent = ns.GetPowerPercent(unitType), appearance = {} }
+    state.castbar=ns.GetCastbarLayout(unitType)
     for key, value in pairs(savedAppearance) do state.appearance[key] = value end
     if overrides then
         if overrides.size then
@@ -83,6 +84,7 @@ local function BuildFrameState(unitType, overrides)
             if overrides.size.height ~= nil then state.size.height = overrides.size.height end
         end
         if overrides.powerPercent ~= nil then state.powerPercent = overrides.powerPercent end
+        if overrides.castbar then state.castbar=overrides.castbar end
         if overrides.appearance then for key, value in pairs(overrides.appearance) do state.appearance[key] = value end end
     end
     return state
@@ -463,6 +465,7 @@ end
 
 local function ApplyFrameState(frame,state)
     local appearance=state.appearance; local width,height=state.size.width,state.size.height; frame:SetSize(width,height)
+    if ns.ApplyCastbarGeometry then ns.ApplyCastbarGeometry(frame,state.castbar) end
     local texture=ns.GetTexturePath(appearance.texture); frame.Health:SetStatusBarTexture(texture); frame.Power:SetStatusBarTexture(texture)
     frame.Background:SetColorTexture(0.03,0.03,0.03,appearance.backgroundOpacity/100); frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,appearance.borderOpacity/100)
     local showPortrait=frame.Portrait and appearance.showPortrait
@@ -725,7 +728,11 @@ function ns.PreviewFrameType(unitType,overrides)
     local state=BuildFrameState(unitType,overrides); for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
     if ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
-function ns.PreviewFrameSize(unitType,width,height) ns.PreviewFrameType(unitType,{size={width=width,height=height}}) end
+function ns.PreviewFrameSize(unitType,width,height)
+    local settings=ns.ConfigSessionGetFrame(unitType)
+    settings.size={width=width,height=height}
+    ns.PreviewFrameType(unitType,settings)
+end
 function ns.IsUnitTypePreviewEnabled(unitType) return previewEnabled[unitType]~=false end
 function ns.ClearEnabledPreviews() previewEnabled={} end
 

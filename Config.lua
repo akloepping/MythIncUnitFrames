@@ -65,10 +65,12 @@ local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
 local statusXSlider, statusYSlider, statusSizeSlider
 local restingControls = {}
+local castbarControls = {}
 -- Presentation state only; configuration values stay in ConfigSession.
 local frameUI = { category="Layout", categories={}, units={}, sections={} }
 local FRAME_CATEGORIES = { "Layout", "Text", "Appearance", "Indicators", "Auras" }
 local FRAME_SUPPORT = {
+    castbar={player=true,target=true,focus=true,boss=true},
     portrait={player=true,target=true,focus=true,pet=true,targettarget=true,party=true,boss=true},
     group={party=true,boss=true,raid=true},
     role={player=true,party=true,raid=true},
@@ -219,7 +221,11 @@ local function PreviewFrameSliders()
     end
     if selectedType=="party" or selectedType=="boss" then groupWorking.spacing=Round(partySpacingSlider:GetValue()) end
 
-    ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working})
+    local castbar=ns.ConfigSessionGetFrame(selectedType).castbar
+    if castbar and castbar.width==0 then
+        refreshing=true; castbarControls.width:SetValue(width); refreshing=false
+    end
+    ns.ConfigSessionStageFrame(selectedType,{size={width=width,height=height},powerPercent=powerPercent,appearance=working,castbar=castbar})
     MarkPending("Configuration changes are pending.")
     if selectedType=="raid" then ns.UpdateRaidPreview() end
     if InCombatLockdown() or not ns.PreviewFrameType then return end
@@ -229,6 +235,7 @@ local function PreviewFrameSliders()
         size=selectedType=="raid" and ns.GetSize("raid") or {width=width,height=height},
         powerPercent=powerPercent,
         appearance=working,
+        castbar=castbar,
     })
     PreviewGroupControls({width=width,height=height})
     if selectedType=="raid" then ns.UpdateRaidPreview() end
@@ -555,6 +562,15 @@ local function RefreshFramesPage()
     widthSlider:SetLimits(selectedType=="raid" and 50 or 100,600)
     heightSlider:SetLimits(selectedType=="raid" and 18 or 24,150)
     local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
+    castbarControls.Panel:SetShown(frameSettings.castbar~=nil)
+    if frameSettings.castbar then
+        local c=frameSettings.castbar
+        castbarControls.width:SetValue(c.width==0 and size.width or c.width)
+        castbarControls.height:SetValue(c.height)
+        castbarControls.xOffset:SetValue(c.xOffset)
+        castbarControls.yOffset:SetValue(c.yOffset)
+        _G[castbarControls.width:GetName().."Text"]:SetText(c.width==0 and "Width (Frame Default)" or "Width")
+    end
     nameXSlider:SetValue(working.nameXOffset or 6); nameYSlider:SetValue(working.nameYOffset or 0); healthXSlider:SetValue(working.healthXOffset or -6); healthYSlider:SetValue(working.healthYOffset or 0)
     roleXSlider:SetValue(working.roleIconXOffset or 3); roleYSlider:SetValue(working.roleIconYOffset or -3)
     roleSizeSlider:SetValue(working.roleIconSize or 14)
@@ -584,6 +600,11 @@ function ns.RefreshConfig()
     statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
+    if not InCombatLockdown() and selectedPage=="frames" and frameUI.category~="Auras"
+        and FRAME_SUPPORT.castbar[selectedType] then
+        ns.PreviewFrameType(selectedType,ns.ConfigSessionGetFrame(selectedType))
+        previewFrameType=selectedType
+    end
     ns.UpdateRaidPreview()
     RefreshStatusIconPreview()
     if not InCombatLockdown() and IsAurasSelected() and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
@@ -728,10 +749,10 @@ local function CreateIndicatorControls(parent)
 end
 
 local function CreateFrameLayoutControls(parent)
-    local size=MakeFrameSection(parent,"Frame Size",0,0,426,142)
+    local size=MakeFrameSection(parent,"Frame Size",0,0,426,112)
     widthSlider=FrameSlider(size,"Width","Frame Width",100,600,174,18,-54)
     heightSlider=FrameSlider(size,"Height","Frame Height",24,150,174,234,-54)
-    local power=MakeFrameSection(parent,"Power Bar",0,-158,426,130)
+    local power=MakeFrameSection(parent,"Power Bar",0,-128,426,100)
     powerSlider=FrameSlider(power,"PowerPercent","Power Bar Height (%)",10,40,360,28,-52)
     local portrait=MakeFrameSection(parent,"Portrait",442,0,426,180); frameUI.sections.portrait=portrait
     portraitButton=MakeButton(portrait,"Portrait: Off",170,26); portraitButton:SetPoint("TOPLEFT",18,-34)
@@ -739,6 +760,30 @@ local function CreateFrameLayoutControls(parent)
     sideButton=MakeButton(portrait,"Side: Left",170,26); sideButton:SetPoint("TOPLEFT",234,-34)
     sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
     portraitSlider=FrameSlider(portrait,"PortraitPercent","Portrait Width (%)",12,40,360,28,-96)
+    local castbar=MakeFrameSection(parent,"Cast Bar",0,-244,426,160)
+    castbarControls.Panel=castbar
+    local specs={
+        {"width","Width",100,600,18,-46}, {"height","Height",18,40,234,-46},
+        {"xOffset","X Offset",-300,300,18,-112}, {"yOffset","Y Offset",-300,300,234,-112},
+    }
+    for _, spec in ipairs(specs) do
+        local key=spec[1]
+        local slider=MakeSlider(castbar,"Castbar"..key,spec[2],spec[3],spec[4],1,174)
+        slider:SetPoint("TOPLEFT",spec[5],spec[6]); castbarControls[key]=slider
+        slider:HookScript("OnValueChanged",function(_,value)
+            if refreshing then return end
+            local settings=ns.ConfigSessionGetFrame(selectedType)
+            if not settings.castbar then return end
+            settings.castbar[key]=Round(value)
+            ns.ConfigSessionStageFrame(selectedType,settings)
+            MarkPending("Cast bar geometry changes are pending.")
+            if not InCombatLockdown() then
+                ns.PreviewFrameType(selectedType,settings)
+                previewFrameType=selectedType
+            end
+            if key=="width" then _G[slider:GetName().."Text"]:SetText("Width") end
+        end)
+    end
 end
 
 local function CreateGroupLayoutControls(layout)
