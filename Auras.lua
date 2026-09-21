@@ -20,6 +20,15 @@ local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true, raid
 
 local availabilityDeferred = CreateFrame("Frame")
 local pendingAvailability = {}
+local StyleAuraRegions
+
+local function RetryAuraStyle(data)
+    if not data.stylePending or InCombatLockdown() then return end
+    data.stylePending = nil
+    for _, regions in ipairs(data.styleRegions) do
+        if regions.stylePending and not StyleAuraRegions(regions, data.style) then data.stylePending = true end
+    end
+end
 
 local function IsAuraUnitAvailable(frame)
     if not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) then return false end
@@ -68,6 +77,7 @@ function ns.RefreshFrameAuraAvailability(frame, forceRefresh)
     local recovering = available and (frame.MIUF_AurasAvailable ~= true or forceRefresh)
     frame.MIUF_AurasAvailable = available
     for auraType, data in pairs(frame.MIUF_Auras or EMPTY_AURAS) do
+        RetryAuraStyle(data)
         local displayAvailable = IsAuraDisplayAvailable(frame, auraType, available)
         local displayRecovering = displayAvailable and (data.available ~= true or forceRefresh)
         data.available = displayAvailable
@@ -166,10 +176,25 @@ local function SetFlowLayout(container, anchorPoint, growthX, growthY)
     end
 end
 
-local function StyleAuraRegions(regions, layout)
+local function CanStyleAuraRegion(region)
+    if not region.CanBeAccessedInContext then return true end
+    local accessible = region:CanBeAccessedInContext()
+    return canaccessvalue(accessible) and accessible == true
+end
+
+StyleAuraRegions = function(regions, layout)
+    -- Native aura buttons restrict their descendants after initialization.
+    -- Out of combat does not guarantee access (nor does IsForbidden alone).
+    -- Keep the latest requested style and retry through existing unit events.
+    if not CanStyleAuraRegion(regions.count) or not CanStyleAuraRegion(regions.cooldown) then
+        regions.stylePending = true
+        return false
+    end
     local size = math.max(8, tonumber(layout.iconSize) or 22)
     regions.count:SetFont(FONT, math.max(8, math.floor(size * 0.45)), "OUTLINE")
     if regions.cooldown.SetHideCountdownNumbers then regions.cooldown:SetHideCountdownNumbers(layout.showText == false) end
+    regions.stylePending = nil
+    return true
 end
 
 local function InitializeAuraButton(button, layout)
@@ -205,10 +230,13 @@ local function ApplyContainerLayout(frame, auraType, previewLayout)
     if not layout then return end
     if auraType == "buffs" then ApplyBuffFiltering(frame, layout) end
     -- Every native allocation runs our initialization callback, including
-    -- inactive preallocated buttons. Retain only our display regions, never
-    -- aura data, and restyle all of them so reuse needs no special handling.
+    -- inactive preallocated buttons. These live descendants can later deny
+    -- addon access; retain requested scalars and defer inaccessible styling.
     data.style.iconSize=layout.iconSize; data.style.showText=layout.showText
-    for _,regions in ipairs(data.styleRegions) do StyleAuraRegions(regions,data.style) end
+    data.stylePending = nil
+    for _,regions in ipairs(data.styleRegions) do
+        if not StyleAuraRegions(regions,data.style) then data.stylePending = true end
+    end
     local size = math.max(8, tonumber(layout.iconSize) or 22)
     local spacing = math.max(0, tonumber(layout.spacing) or 2)
     local width = math.max(size, frame:GetWidth())
@@ -529,6 +557,9 @@ groupMoverCombatWatcher:SetScript("OnEvent", function()
     end
     if not InCombatLockdown() then
         if ns.ConfigSessionGetAura then ns.PreviewRaidDebuffLayout(ns.ConfigSessionGetAura("raid", "debuffs")) end
+        for _, frame in pairs(ns.frames or {}) do
+            for _, data in pairs(frame.MIUF_Auras or EMPTY_AURAS) do RetryAuraStyle(data) end
+        end
         ns.SetAuraMoversLocked(ns.AreAuraMoversLocked())
     end
 end)
