@@ -205,7 +205,7 @@ local function RefreshCastbarPreview()
     local check=castbarControls.preview
     if not check then return end
     local settings=ns.ConfigSessionGetFrame(selectedType).castbar
-    local available=config:IsShown() and selectedPage=="frames" and frameUI.category=="Layout"
+    local available=config:IsShown() and selectedPage=="frames"
         and FRAME_SUPPORT.castbarGeometry[selectedType]
         and not InCombatLockdown() and settings and settings.enabled~=false
         and ns.ConfigSessionGetEnabled(selectedType)
@@ -328,9 +328,36 @@ local function ApplyAuraVisual(unitType,auraType,layout)
     end
 end
 
-local function RestoreAuraPreview()
+local function ClearAuraPositionPreview()
+    if ns.ClearAuraMoverPreview then ns.ClearAuraMoverPreview() end
+    if auraLockButton then auraLockButton:SetText("Preview Position") end
+end
+
+local function RefreshAuraPositionPreview()
+    local context=config and config:IsShown() and selectedPage=="frames" and not InCombatLockdown()
+        and ns.ConfigSessionGetEnabled(selectedType)
+    if not context then ClearAuraPositionPreview()
+    else ns.RefreshAuraMoverPreview() end
+    local layout=IsAurasSelected() and ns.ConfigSessionGetAura(selectedType,selectedAura)
+    local available=context and layout and layout.enabled~=false
+    if auraLockButton then
+        auraLockButton:SetEnabled(available and true or false)
+        auraLockButton:SetText(ns.IsAuraMoverPreviewEnabled(selectedType,selectedAura) and "End Preview" or "Preview Position")
+    end
+end
+
+hooksecurefunc(ns,"SetAuraMoversLockedState",function(locked) if locked then ClearAuraPositionPreview() end end)
+hooksecurefunc(ns,"SetActiveProfile",function() ClearAuraPositionPreview(); ClearCastbarPreview() end)
+hooksecurefunc(ns,"ResetAllSettings",function() ClearAuraPositionPreview(); ClearCastbarPreview() end)
+
+local function RestoreAuraPreview(keepMovers)
+    if not keepMovers then ClearAuraPositionPreview() end
     if InCombatLockdown() then return end
-    if previewAuraUnitType and previewAuraType then ApplyAuraVisual(previewAuraUnitType,previewAuraType,ns.GetAuraLayout(previewAuraUnitType,previewAuraType)) end
+    if previewAuraUnitType and previewAuraType then
+        local layout=keepMovers and ns.IsAuraMoverPreviewEnabled(previewAuraUnitType,previewAuraType)
+            and ns.ConfigSessionGetAura(previewAuraUnitType,previewAuraType) or ns.GetAuraLayout(previewAuraUnitType,previewAuraType)
+        ApplyAuraVisual(previewAuraUnitType,previewAuraType,layout)
+    end
     previewAuraUnitType,previewAuraType=nil,nil
 end
 
@@ -577,7 +604,7 @@ local function RefreshAurasCategory()
         end
     end
     RefreshAuraControls(); RefreshTrackedWindow()
-    auraLockButton:SetText(ns.AreAuraMoversLocked() and "Unlock Aura Movers" or "Lock Aura Movers")
+    RefreshAuraPositionPreview()
 end
 
 local function RefreshFramesNavigation()
@@ -658,12 +685,14 @@ function ns.RefreshConfig()
     ns.UpdateRaidPreview()
     RefreshStatusIconPreview()
     RefreshCastbarPreview()
+    RefreshAuraPositionPreview()
     if not InCombatLockdown() and IsAurasSelected() and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
 end
 
 local function ApplyChanges()
+    ClearAuraPositionPreview()
     ClearCastbarPreview()
     ClearStatusIconPreview()
     local committed,summary=ns.ConfigSessionCommit()
@@ -693,6 +722,7 @@ local function ApplyChanges()
 end
 
 local function RevertChanges()
+    ClearAuraPositionPreview()
     ClearCastbarPreview()
     ClearStatusIconPreview()
     if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
@@ -842,7 +872,6 @@ local function CreateFrameLayoutControls(parent)
         if not self:GetChecked() then ClearCastbarPreview(); return end
         RefreshCastbarPreview()
     end)
-    castbar:HookScript("OnHide",ClearCastbarPreview)
     local specs={
         {"width","Width",100,600,18,-46}, {"height","Height",18,40,234,-46},
         {"xOffset","X Offset",-300,300,18,-112}, {"yOffset","Y Offset",-300,300,234,-112},
@@ -887,6 +916,7 @@ local function CreateRaidPreviewControls(parent)
     local revertRaid=MakeButton(raidPreviewControls,"Revert Raid Changes",155,24); revertRaid:SetPoint("TOPLEFT")
     revertRaid:SetScript("OnClick",function()
         if InCombatLockdown() then return end
+        ClearAuraPositionPreview(); ClearCastbarPreview()
         ClearStatusIconPreview()
         ns.StopConfigurationMovers("raid")
         ns.ConfigSessionStageFrame("raid",{size=ns.GetSize("raid"),powerPercent=ns.GetPowerPercent("raid"),appearance=ns.GetAppearance("raid")})
@@ -951,6 +981,7 @@ local function CreateFramesNavigation()
         if previous then button:SetPoint("LEFT",previous,"RIGHT",6,0) else button:SetPoint("TOPLEFT",0,0) end
         button:SetScript("OnClick",function()
             if selectedType==unitType then return end
+            ClearAuraPositionPreview()
             ClearCastbarPreview()
             ClearStatusIconPreview()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
@@ -968,8 +999,7 @@ local function CreateFramesNavigation()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if name==frameUI.category then return end
             if name~="Indicators" then ClearStatusIconPreview() end
-            if frameUI.category=="Auras" then RestoreAuraPreview() end
-            if name=="Auras" then RestoreFramePreview() end
+            if frameUI.category=="Auras" then RestoreAuraPreview(true) end
             frameUI.category=name
             ns.RefreshConfig()
         end)
@@ -986,6 +1016,7 @@ local function CreateFramesHeader()
         ns.ConfigSessionStageEnabled(selectedType,self:GetChecked() and true or false)
         MarkPending(DISPLAY_NAMES[selectedType].." enable state staged.")
         if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(selectedType,self:GetChecked()) end
+        RefreshAuraPositionPreview()
         RefreshCastbarPreview()
     end)
     frameUI.enabled=check
@@ -1008,7 +1039,7 @@ local function CreateFramesActions()
     local reset=MakeButton(framesPage,"Reset Player",220,28); reset:SetPoint("BOTTOMRIGHT",config,"BOTTOMRIGHT",-114,18); frameUI.reset=reset
     reset:SetScript("OnClick",function()
         if not InCombatLockdown() then
-            RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType)
+            ClearAuraPositionPreview(); RestoreFramePreview(); ns.ConfigSessionStageFrameReset(selectedType)
             MarkPending("Frame reset is pending."); ns.RefreshConfig()
         end
     end)
@@ -1034,7 +1065,7 @@ local function CreateAuraDisplayControls(parent)
         auraWorking.enabled=auraWorking.enabled==false; StageAuraValue("enabled",auraWorking.enabled)
         if selectedType=="raid" then PreviewAuraSliders() end
         RefreshAuraControls()
-        if ns.PreviewAuraMover then ns.PreviewAuraMover(selectedType,selectedAura,auraWorking.enabled~=false) end
+        RefreshAuraPositionPreview()
     end)
     auraTextButton=MakeButton(panel,"Cooldown Text: On",190,26); auraTextButton:SetPoint("TOPLEFT",198,-36)
     auraTextButton:SetScript("OnClick",function()
@@ -1120,16 +1151,17 @@ local function CreateTrackedBuffManager()
 end
 
 local function CreateAuraActions(parent)
-    auraLockButton=MakeButton(parent,"Unlock Aura Movers",180,26); auraLockButton:SetPoint("TOPRIGHT",0,0)
+    auraLockButton=MakeButton(parent,"Preview Position",180,26); auraLockButton:SetPoint("TOPRIGHT",0,0)
     auraLockButton:SetScript("OnClick",function()
         if not InCombatLockdown() then
-            local locked=not ns.AreAuraMoversLocked(); ns.SetAuraMoversLockedState(locked); ns.SetAuraMoversLocked(locked); ns.RefreshConfig()
+            ns.PreviewAuraMover(selectedType,selectedAura,not ns.IsAuraMoverPreviewEnabled(selectedType,selectedAura))
+            RefreshAuraPositionPreview()
         end
     end)
     local reset=MakeButton(parent,"Reset Player Buffs",240,28); reset:SetPoint("BOTTOMLEFT",0,0); auraUI.reset=reset
     reset:SetScript("OnClick",function()
         if not InCombatLockdown() then
-            RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end
+            ClearCastbarPreview(); RestoreAuraPreview(); if not AuraAvailable(selectedType,selectedAura) then return end
             ns.ConfigSessionStageAuraReset(selectedType,selectedAura); MarkPending("Aura reset is pending."); ns.RefreshConfig()
         end
     end)
@@ -1140,7 +1172,7 @@ local function CreateAurasPage()
     auraLabel=aurasPage:CreateFontString(nil,"OVERLAY"); auraLabel:SetFont(FONT,13,"OUTLINE"); auraLabel:SetTextColor(unpack(Skin.text)); auraLabel:SetPoint("TOPLEFT",0,-6)
     for _,auraType in ipairs(AURA_TYPES) do
         local button=MakeNavigationButton(aurasPage,AURA_NAMES[auraType],140)
-        button:SetScript("OnClick",function() RestoreAuraPreview(); selectedAura=auraType; ns.RefreshConfig() end)
+        button:SetScript("OnClick",function() RestoreAuraPreview(true); selectedAura=auraType; ns.RefreshConfig() end)
         auraButtons[auraType]=button
     end
     CreateAuraDisplayControls(aurasPage)
@@ -1247,7 +1279,7 @@ function ns.UpdateLockMoversButton()
     local frameLocked,auraLocked=ns.AreFrameMoversLocked(),ns.AreAuraMoversLocked()
     lockMoversButton:SetShown(not InCombatLockdown() and (not frameLocked or not auraLocked))
     if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frames" or "Lock Frames") end
-    if auraLockButton then auraLockButton:SetText(auraLocked and "Unlock Aura Movers" or "Lock Aura Movers") end
+    if auraLockButton then auraLockButton:SetText(ns.IsAuraMoverPreviewEnabled(selectedType,selectedAura) and "End Preview" or "Preview Position") end
 end
 
 lockMoversButton:SetScript("OnClick",function()
@@ -1261,6 +1293,7 @@ end)
 local combatWatcher=CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 combatWatcher:SetScript("OnEvent",function(_,event)
+    ClearAuraPositionPreview()
     ClearCastbarPreview()
     if event~="PLAYER_ENTERING_WORLD" then
         if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end

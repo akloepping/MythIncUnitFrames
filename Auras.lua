@@ -21,6 +21,8 @@ local DISPEL_HIGHLIGHT_TYPES = { player = true, party = true, focus = true, raid
 local availabilityDeferred = CreateFrame("Frame")
 local pendingAvailability = {}
 local StyleAuraRegions
+local moverPreviewUnit
+local moverPreviewAuras, moverPreviewHosts = {}, {}
 
 local function RetryAuraStyle(data)
     if not data.stylePending or InCombatLockdown() then return end
@@ -285,6 +287,9 @@ local function SaveDraggedAuraPosition(frame, auraType, anchor)
             end
         end
     end
+    if moverPreviewHosts[frame.MIUF_UnitType]==frame then
+        PositionAuraAnchor(frame,auraType,ns.ConfigSessionGetAura(frame.MIUF_UnitType,auraType))
+    end
     if ns.RefreshConfig then ns.RefreshConfig() end
 end
 
@@ -300,11 +305,18 @@ local function CreateAuraMover(frame, auraType, anchor)
     local label = mover:CreateFontString(nil, "OVERLAY")
     label:SetFont(FONT, 10, "OUTLINE"); label:SetPoint("CENTER")
     label:SetText((frame.MIUF_UnitType or frame.MIUF_Unit) .. " " .. AURA_LABELS[auraType])
-    mover:SetScript("OnDragStart", function() if not InCombatLockdown() then mover.MIUF_RevertedDrag=nil; anchor:StartMoving() end end)
+    mover:SetScript("OnDragStart", function() if not InCombatLockdown() then mover.MIUF_RevertedDrag=nil; mover.MIUF_AuraDragging=true; anchor:StartMoving() end end)
     mover:SetScript("OnDragStop", function()
+        mover.MIUF_AuraDragging=nil
         anchor:StopMovingOrSizing()
         if mover.MIUF_RevertedDrag then return end
         if not InCombatLockdown() then SaveDraggedAuraPosition(frame, auraType, anchor) end
+    end)
+    mover:SetScript("OnHide", function()
+        if not mover.MIUF_AuraDragging then return end
+        mover.MIUF_AuraDragging=nil; mover.MIUF_RevertedDrag=true
+        anchor:StopMovingOrSizing()
+        if not InCombatLockdown() then PositionAuraAnchor(frame,auraType,ns.ConfigSessionGetAura(frame.MIUF_UnitType,auraType)) end
     end)
     mover:Hide()
     frame.MIUF_AuraMovers = frame.MIUF_AuraMovers or {}; frame.MIUF_AuraMovers[auraType] = mover
@@ -429,6 +441,7 @@ function ns.UpdateFrameAuraUnit(frame)
     end
     if frame.MIUF_DispelHighlight then frame.MIUF_DispelHighlight:SetUnit(unit) end
     ns.RefreshFrameAuraAvailability(frame, true)
+    if moverPreviewUnit==frame.MIUF_UnitType then ns.RefreshAuraMoverPreview() end
 end
 
 local function AttachFrameAuras(frame)
@@ -506,29 +519,85 @@ function ns.ResetAuraPositionsForFrame(frame)
     PositionAuraAnchor(frame, "buffs"); PositionAuraAnchor(frame, "debuffs"); PositionAuraAnchor(frame, "defensives")
 end
 
-function ns.SetAuraMoversLocked(locked)
-    for _, frame in pairs(ns.frames or {}) do
-        if frame.MIUF_AuraMovers then
-            for auraType, mover in pairs(frame.MIUF_AuraMovers) do
-                local layout = frame.MIUF_UnitType == "raid" and ns.ConfigSessionGetAura and ns.ConfigSessionGetAura("raid", auraType) or ns.GetAuraLayout(frame.MIUF_UnitType, auraType)
-                local previewOff = ns.IsUnitTypePreviewEnabled and not ns.IsUnitTypePreviewEnabled(frame.MIUF_UnitType)
-                if locked or ((frame.MIUF_UnitType == "party" or frame.MIUF_UnitType == "raid") and InCombatLockdown()) or previewOff or not ns.IsFrameTypeEnabled(frame.MIUF_UnitType) or not layout or layout.enabled == false then mover:Hide() else mover:Show() end
+function ns.RefreshAuraMoverPreview()
+    local selected = {}
+    if moverPreviewUnit and not InCombatLockdown() then
+        local enabled=ns.IsFrameTypeEnabled(moverPreviewUnit)
+        if ns.ConfigSessionGetEnabled then enabled=ns.ConfigSessionGetEnabled(moverPreviewUnit) end
+        for auraType in pairs(moverPreviewAuras) do
+            local layout=ns.ConfigSessionGetAura(moverPreviewUnit,auraType)
+            local chosen, chosenKey
+            if not layout or layout.enabled==false or not enabled then
+                moverPreviewAuras[auraType]=nil
+            else
+                for key,frame in pairs(ns.frames or {}) do
+                    local mover=frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType]
+                    if frame.MIUF_UnitType==moverPreviewUnit and mover
+                        and ((moverPreviewUnit~="party" and moverPreviewUnit~="raid")
+                            or (UnitExists(frame.MIUF_Unit) and frame:IsVisible())) then
+                        local rank=frame==ns.partyAuraMoverOwner and "" or tostring(key)
+                        if not chosenKey or rank<chosenKey then chosen,chosenKey=mover,rank end
+                    end
+                end
+                if not chosen and (moverPreviewUnit=="party" or moverPreviewUnit=="raid") then
+                    local host=ns.GetGroupStatusPreviewFrame and ns.GetGroupStatusPreviewFrame(moverPreviewUnit)
+                    if host then
+                        moverPreviewHosts[moverPreviewUnit]=host
+                        host.MIUF_UnitType=moverPreviewUnit
+                        host.MIUF_Auras=host.MIUF_Auras or {}
+                        if not host.MIUF_Auras[auraType] then
+                            -- Reuse the mover constructor on the existing ghost;
+                            -- this creates no aura container, icons, or unit data.
+                            local anchor=CreateFrame("Frame",nil,host)
+                            host.MIUF_Auras[auraType]={anchor=anchor}
+                            CreateAuraMover(host,auraType,anchor)
+                        end
+                        chosen=host.MIUF_AuraMovers[auraType]
+                        if not chosen.MIUF_AuraDragging then
+                            host.MIUF_Auras[auraType].anchor:SetSize(host:GetWidth(),math.max(8,tonumber(layout.iconSize) or 22))
+                            PositionAuraAnchor(host,auraType,layout)
+                        end
+                    end
+                end
+                if chosen then selected[chosen]=true end
             end
         end
     end
+    for _,frames in ipairs({ns.frames or {},moverPreviewHosts}) do
+        for _,frame in pairs(frames) do
+            for _,mover in pairs(frame.MIUF_AuraMovers or {}) do
+                if not selected[mover] then mover:Hide() end
+            end
+        end
+    end
+    for mover in pairs(selected) do mover:Show() end
+end
+
+function ns.ClearAuraMoverPreview()
+    moverPreviewUnit,moverPreviewAuras=nil,{}
+    ns.RefreshAuraMoverPreview()
+end
+
+function ns.IsAuraMoverPreviewEnabled(unitType,auraType)
+    return moverPreviewUnit==unitType and moverPreviewAuras[auraType]==true
+end
+
+-- Compatibility with existing refresh/lock callers; never globally show movers.
+function ns.SetAuraMoversLocked(locked)
+    ns.RefreshAuraMoverPreview()
     if ns.UpdateLockMoversButton then ns.UpdateLockMoversButton() end
 end
 
 function ns.PreviewAuraMover(unitType, auraType, enabled)
-    if not ns.frames then return end
-    for _, frame in pairs(ns.frames) do
-        if frame.MIUF_UnitType == unitType and frame.MIUF_AuraMovers and frame.MIUF_AuraMovers[auraType] then
-            local mover = frame.MIUF_AuraMovers[auraType]
-            local previewOn = not ns.IsUnitTypePreviewEnabled or ns.IsUnitTypePreviewEnabled(unitType)
-            if enabled and previewOn and ((unitType ~= "party" and unitType ~= "raid") or not InCombatLockdown()) and not ns.AreAuraMoversLocked() and ns.IsFrameTypeEnabled(unitType) then mover:Show() else mover:Hide() end
-        end
-    end
+    if InCombatLockdown() then ns.ClearAuraMoverPreview(); return end
+    if moverPreviewUnit~=unitType then ns.ClearAuraMoverPreview() end
+    moverPreviewUnit=unitType
+    moverPreviewAuras[auraType]=enabled and true or nil
+    ns.RefreshAuraMoverPreview()
 end
+
+hooksecurefunc(ns,"SetActiveProfile",ns.ClearAuraMoverPreview)
+hooksecurefunc(ns,"ResetAllSettings",ns.ClearAuraMoverPreview)
 
 local deferred = CreateFrame("Frame")
 deferred:SetScript("OnEvent", function(self)
@@ -550,6 +619,7 @@ local groupMoverCombatWatcher = CreateFrame("Frame")
 groupMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 groupMoverCombatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 groupMoverCombatWatcher:SetScript("OnEvent", function()
+    if InCombatLockdown() then ns.ClearAuraMoverPreview() end
     for _, frame in pairs(ns.frames or {}) do
         if (frame.MIUF_UnitType == "party" or frame.MIUF_UnitType == "raid") and frame.MIUF_AuraMovers then
             for _, mover in pairs(frame.MIUF_AuraMovers) do mover:Hide() end
