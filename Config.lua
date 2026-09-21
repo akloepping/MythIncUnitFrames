@@ -71,6 +71,7 @@ local frameUI = { category="Layout", categories={}, units={}, sections={} }
 local FRAME_CATEGORIES = { "Layout", "Text", "Appearance", "Indicators", "Auras" }
 local FRAME_SUPPORT = {
     castbar={player=true,target=true,focus=true,boss=true},
+    castbarGeometry={player=true,target=true},
     portrait={player=true,target=true,focus=true,pet=true,targettarget=true,party=true,boss=true},
     group={party=true,boss=true,raid=true},
     role={player=true,party=true,raid=true},
@@ -195,7 +196,26 @@ local function RefreshStatusIconPreview()
     ns.UpdateTemporaryStatusPreview(selectedType,working)
 end
 
+local function ClearCastbarPreview()
+    if castbarControls.preview then castbarControls.preview:SetChecked(false) end
+    if ns.ClearCastbarPreview then ns.ClearCastbarPreview() end
+end
+
+local function RefreshCastbarPreview()
+    local check=castbarControls.preview
+    if not check then return end
+    local settings=ns.ConfigSessionGetFrame(selectedType).castbar
+    local available=config:IsShown() and selectedPage=="frames" and frameUI.category=="Layout"
+        and FRAME_SUPPORT.castbarGeometry[selectedType]
+        and not InCombatLockdown() and settings and settings.enabled~=false
+        and ns.ConfigSessionGetEnabled(selectedType)
+    check:SetEnabled(available and true or false)
+    if not available then ClearCastbarPreview()
+    elseif check:GetChecked() then ns.SetCastbarPreview(selectedType) end
+end
+
 local function RestoreFramePreview(unitType)
+    ClearCastbarPreview()
     if InCombatLockdown() then return end
     unitType=unitType or previewFrameType
     if unitType and ns.ResetGroupPreview then ns.ResetGroupPreview(unitType) end
@@ -585,6 +605,13 @@ local function RefreshFramesPage()
     heightSlider:SetLimits(selectedType=="raid" and 18 or 24,150)
     local frameSettings=ns.ConfigSessionGetFrame(selectedType); local size=frameSettings.size; widthSlider:SetValue(size.width); heightSlider:SetValue(size.height); powerSlider:SetValue(frameSettings.powerPercent); fontSlider:SetValue(working.fontSize); portraitSlider:SetValue(working.portraitPercent); bgSlider:SetValue(working.backgroundOpacity); borderSlider:SetValue(working.borderOpacity)
     castbarControls.Panel:SetShown(frameSettings.castbar~=nil)
+    local configurable=FRAME_SUPPORT.castbarGeometry[selectedType]==true
+    castbarControls.Panel:SetHeight(configurable and 186 or 36)
+    castbarControls.preview:SetShown(configurable)
+    for _,key in ipairs({"width","height","xOffset","yOffset"}) do
+        castbarControls[key]:SetShown(configurable)
+        castbarControls[key].ValueBox:SetShown(configurable)
+    end
     if frameSettings.castbar then
         local c=frameSettings.castbar
         castbarControls.enabled:SetChecked(c.enabled~=false)
@@ -630,12 +657,14 @@ function ns.RefreshConfig()
     end
     ns.UpdateRaidPreview()
     RefreshStatusIconPreview()
+    RefreshCastbarPreview()
     if not InCombatLockdown() and IsAurasSelected() and AuraAvailable(selectedType,selectedAura) and auraWorking.iconSize then
         ApplyAuraVisual(selectedType,selectedAura,auraWorking); previewAuraUnitType,previewAuraType=selectedType,selectedAura
     end
 end
 
 local function ApplyChanges()
+    ClearCastbarPreview()
     ClearStatusIconPreview()
     local committed,summary=ns.ConfigSessionCommit()
     if not committed then return end
@@ -664,6 +693,7 @@ local function ApplyChanges()
 end
 
 local function RevertChanges()
+    ClearCastbarPreview()
     ClearStatusIconPreview()
     if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
     previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
@@ -783,7 +813,7 @@ local function CreateFrameLayoutControls(parent)
     sideButton=MakeButton(portrait,"Side: Left",170,26); sideButton:SetPoint("TOPLEFT",234,-34)
     sideButton:SetScript("OnClick",function() working.portraitSide=working.portraitSide=="LEFT" and "RIGHT" or "LEFT"; RefreshFrameControls(); PreviewFrameSliders() end)
     portraitSlider=FrameSlider(portrait,"PortraitPercent","Portrait Width (%)",12,40,360,28,-96)
-    local castbar=MakeFrameSection(parent,"Cast Bar",0,-244,426,160)
+    local castbar=MakeFrameSection(parent,"Cast Bar",0,-244,426,186)
     castbarControls.Panel=castbar
     local enabled=CreateFrame("CheckButton",nil,castbar,"UICheckButtonTemplate"); Skin.Check(enabled)
     enabled:SetSize(24,24); enabled:SetPoint("TOPRIGHT",-164,-3)
@@ -801,7 +831,18 @@ local function CreateFrameLayoutControls(parent)
             ns.PreviewFrameType(selectedType,settings)
             previewFrameType=selectedType
         end
+        RefreshCastbarPreview()
     end)
+    local preview=CreateFrame("CheckButton",nil,castbar,"UICheckButtonTemplate"); Skin.Check(preview)
+    preview:SetSize(24,24); preview:SetPoint("BOTTOMLEFT",18,0)
+    local previewLabel=preview:CreateFontString(nil,"OVERLAY"); previewLabel:SetFont(FONT,11,"OUTLINE"); previewLabel:SetTextColor(unpack(Skin.text))
+    previewLabel:SetPoint("LEFT",preview,"RIGHT",2,0); previewLabel:SetText("Preview Cast Bar")
+    castbarControls.preview=preview
+    preview:SetScript("OnClick",function(self)
+        if not self:GetChecked() then ClearCastbarPreview(); return end
+        RefreshCastbarPreview()
+    end)
+    castbar:HookScript("OnHide",ClearCastbarPreview)
     local specs={
         {"width","Width",100,600,18,-46}, {"height","Height",18,40,234,-46},
         {"xOffset","X Offset",-300,300,18,-112}, {"yOffset","Y Offset",-300,300,234,-112},
@@ -910,6 +951,7 @@ local function CreateFramesNavigation()
         if previous then button:SetPoint("LEFT",previous,"RIGHT",6,0) else button:SetPoint("TOPLEFT",0,0) end
         button:SetScript("OnClick",function()
             if selectedType==unitType then return end
+            ClearCastbarPreview()
             ClearStatusIconPreview()
             if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end
             if previewFrameType and previewFrameType~=unitType then RestoreFramePreview(previewFrameType) end
@@ -944,6 +986,7 @@ local function CreateFramesHeader()
         ns.ConfigSessionStageEnabled(selectedType,self:GetChecked() and true or false)
         MarkPending(DISPLAY_NAMES[selectedType].." enable state staged.")
         if ns.PreviewUnitTypeMovers then ns.PreviewUnitTypeMovers(selectedType,self:GetChecked()) end
+        RefreshCastbarPreview()
     end)
     frameUI.enabled=check
     frameLockButton=MakeButton(header,"Unlock Frames",170,28); frameLockButton:SetPoint("RIGHT",-16,0)
@@ -1218,6 +1261,7 @@ end)
 local combatWatcher=CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED"); combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED"); combatWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 combatWatcher:SetScript("OnEvent",function(_,event)
+    ClearCastbarPreview()
     if event~="PLAYER_ENTERING_WORLD" then
         if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end
         ns.SetAuraMoversLocked(InCombatLockdown() or ns.AreAuraMoversLocked())

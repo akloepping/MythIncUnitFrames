@@ -14,6 +14,9 @@ end
 function methods:GetFrameLevel() return 1 end
 function methods:SetHeight(h) self.height=h end
 function methods:SetWidth(w) self.width=w end
+function methods:GetParent() return self.parent end
+function methods:SetParent(parent) self.parent=parent end
+function methods:SetValue(value) self.value=value end
 function methods:ClearAllPoints() self.points={} end
 function methods:SetSize(w,h) self.width=w; self.height=h end
 function methods:SetPoint(...) self.points[#self.points+1]={...} end
@@ -43,6 +46,7 @@ function methods:Show()
 end
 function methods:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
 function CreateFrame(_, _, parent) return object(parent) end
+UIParent=object()
 local combat=false
 function InCombatLockdown() return combat end
 Enum={SecondsFormatterAbbreviation={OneLetter=1}, SecondsFormatterInterval={Seconds=1},
@@ -68,10 +72,12 @@ local secret=setmetatable({}, {__tostring=function() error("secret formatted") e
     __add=function() error("secret arithmetic") end, __sub=function() error("secret arithmetic") end})
 function canaccessvalue(v) return v~=secret end
 local current, missing = {}, {}
+local timers={}
+C_Timer={After=function(_,callback) timers[#timers+1]=callback end}
 function UnitExists(unit) return not missing[unit] end
 function UnitCastingInfo(unit)
     local c=current[unit]
-    if c and c.mode=="cast" then return c.name,c.display,c.texture,secret,secret,false,secret,c.lock end
+    if c and c.mode=="cast" then return c.name,c.display,c.texture,secret,secret,false,secret,c.lock,nil,c.id end
 end
 function UnitChannelInfo(unit)
     local c=current[unit]
@@ -151,6 +157,81 @@ player.displayUnit=nil; ns.UpdateFrameCastbar(player); clear(player)
 ns.RefreshCastbars()
 assert(created==count and bindings==8, "no allocations while refreshing")
 
+-- Static configuration presentation never invents a real cast or allocates a
+-- parallel bar. Hidden/missing owners retain their existing geometry anchors.
+local generation=player.Castbar.MIUF_CastState.generation
+player:Hide(); missing.player=true
+ns.SetCastbarPreview("player")
+assert(player.CastbarHolder:IsVisible() and player.CastbarHolder:GetParent()==UIParent)
+assert(player.Castbar.value==0.7 and player.Castbar.Text.text=="Cast Bar Preview")
+assert(player.Castbar.Time.text=="1.5s" and not player.Castbar.Time.binding.enabled)
+assert(player.Castbar.Icon.texture=="Interface\\Icons\\INV_Misc_QuestionMark")
+assert(not player.Castbar.MIUF_CastState.active and not player.Castbar.MIUF_CastState.terminal)
+assert(player.Castbar.MIUF_CastState.generation==generation)
+assert(not ns.frames.target.MIUF_CastbarPreview)
+ns.ApplyFrameCastbarSettings(player,{enabled=true,width=240,height=26,xOffset=12,yOffset=-20})
+assert(player.CastbarHolder.width==240 and player.CastbarHolder.height==26)
+local point=player.CastbarHolder.points[1]
+assert(point[2]==player and point[4]==12 and point[5]==-20)
+
+-- Real casts and terminal holds win; preview returns only after real cleanup.
+player:Show(); missing.player=nil
+current.player={mode="cast",name="Real",texture=123,lock=false,duration=secret,id=7}
+player.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_START","player")
+assert(not player.MIUF_CastbarPreview and player.CastbarHolder:GetParent()==player)
+assert(player.Castbar.Text.text=="Real" and player.Castbar.Time.binding.enabled)
+ns.ClearCastbarPreview()
+assert(player.Castbar.Text.text=="Real" and player.CastbarHolder.shown)
+ns.SetCastbarPreview("player")
+assert(player.Castbar.Text.text=="Real")
+current.player=nil
+player.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_INTERRUPTED","player",nil,nil,nil,7)
+assert(player.Castbar.Text.text=="Interrupted" and player.Castbar.MIUF_CastState.terminal)
+ns.SetCastbarPreview("player")
+assert(player.Castbar.Text.text=="Interrupted")
+timers[#timers]()
+assert(player.MIUF_CastbarPreview and player.Castbar.Text.text=="Cast Bar Preview")
+ns.ClearCastbarPreview()
+clear(player)
+assert(player.CastbarHolder:GetParent()==player)
+
+ns.SetCastbarPreview("target")
+assert(ns.frames.target.MIUF_CastbarPreview)
+ns.ApplyFrameCastbarSettings(ns.frames.target,{enabled=true,width=280,height=30,xOffset=-14,yOffset=8})
+assert(ns.frames.target.CastbarHolder.width==280 and ns.frames.target.CastbarHolder.height==30)
+assert(ns.frames.target.CastbarHolder.points[1][4]==-14 and ns.frames.target.CastbarHolder.points[1][5]==8)
+ns.SetCastbarPreview("focus")
+clear(ns.frames.target)
+assert(not ns.frames.focus.MIUF_CastbarPreview)
+ns.SetCastbarPreview("boss")
+clear(ns.frames.focus)
+for i=1,5 do assert(not ns.frames["boss"..i].MIUF_CastbarPreview) end
+-- Old saved/customized geometry must not affect Focus or any Boss bar.
+for _,unitType in ipairs({"focus","boss"}) do
+    ns.ApplyCastbarLayout(unitType,{enabled=true,width=500,height=40,xOffset=100,yOffset=90})
+    for _,frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==unitType then
+            local holder=frame.CastbarHolder
+            assert(holder.height==18 and #holder.points==2)
+            assert(holder.points[1][1]=="TOPLEFT" and holder.points[2][1]=="TOPRIGHT")
+            for _,point in ipairs(holder.points) do
+                assert(point[2]==frame and point[4]==0 and point[5]==-3)
+            end
+            assert(frame.Castbar.Icon.width==16 and frame.Castbar.Icon.height==16)
+        end
+    end
+end
+ns.ApplyCastbarLayout("boss",{enabled=false,width=0,height=18,xOffset=0,yOffset=-3})
+for i=1,5 do clear(ns.frames["boss"..i]) end
+ns.ClearCastbarPreview()
+ns.ApplyCastbarLayout("boss",ns.GetCastbarLayout("boss"))
+combat=true
+ns.SetCastbarPreview("player")
+assert(not player.MIUF_CastbarPreview)
+combat=false
+assert(created==count and bindings==8, "preview must reuse existing bars")
+print("PASS: static castbar preview, geometry, real-cast/terminal priority, context and disable cleanup")
+
 -- The same configuration application path serves staged previews, Apply and
 -- Revert. Disabling must also block subsequent events and invalidate old cleanup.
 for _, unitType in ipairs({"player","target","focus","boss"}) do
@@ -197,8 +278,6 @@ function hooksecurefunc(target,key,fn)
         fn(...)
     end
 end
-function methods:GetParent() return self.parent end
-function methods:SetParent(parent) self.parent=parent end
 function IsLoggedIn() return true end
 local playerEnabled, castbarEnabled=true,true
 function ns.IsFrameTypeEnabled(unitType) return unitType=="player" and playerEnabled end

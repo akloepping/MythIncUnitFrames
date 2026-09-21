@@ -14,6 +14,7 @@ local CASTBAR_TYPES = {
     focus = true,
     boss = true,
 }
+local CONFIGURABLE_CASTBAR_TYPES = { player = true, target = true }
 
 local function HideStageSeparators(bar)
     for _, separator in ipairs(bar.StageSeparators) do
@@ -111,7 +112,35 @@ local function ResetCastState(bar)
     state.active, state.terminal, state.castBarID, state.unit, state.mode = nil, nil, nil, nil, nil
 end
 
+-- Configuration presentation only; never populate MIUF_CastState for a preview.
+local previewUnitType
+local function RestorePreviewParent(frame)
+    if not frame.MIUF_CastbarPreview then return end
+    frame.MIUF_CastbarPreview = nil
+    frame.CastbarHolder:SetParent(frame)
+end
+
+local function ShowCastbarPreview(frame)
+    local bar, holder = frame.Castbar, frame.CastbarHolder
+    if not bar or not holder or frame.MIUF_UnitType ~= previewUnitType
+        or InCombatLockdown() or frame.MIUF_CastbarEnabled == false then return end
+    if bar.MIUF_CastState.active or bar.MIUF_CastState.terminal then return end
+    ClearActiveVisuals(bar)
+    frame.MIUF_CastbarPreview = true
+    -- Keep the real frame anchors/geometry, even when its unit does not exist.
+    holder:SetParent(UIParent)
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0.7)
+    bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+    bar.Icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    bar.Text:SetText("Cast Bar Preview")
+    bar.Time:SetText("1.5s")
+    bar:Show()
+    holder:Show()
+end
+
 local function ClearCastbar(frame)
+    RestorePreviewParent(frame)
     local bar = frame.Castbar
     if bar then
         ResetCastState(bar)
@@ -122,6 +151,7 @@ local function ClearCastbar(frame)
         bar.Icon:SetTexture(nil)
     end
     if frame.CastbarHolder then frame.CastbarHolder:Hide() end
+    ShowCastbarPreview(frame)
 end
 
 local function PublicCastID(value)
@@ -165,6 +195,7 @@ local function RefreshCastbar(frame)
         return
     end
 
+    RestorePreviewParent(frame)
     ResetCastState(bar)
     local state = bar.MIUF_CastState
     state.active, state.unit, state.castBarID = true, unit, PublicCastID(castBarID)
@@ -191,6 +222,27 @@ local function RefreshCastbar(frame)
 end
 
 ns.UpdateFrameCastbar = RefreshCastbar
+
+function ns.ClearCastbarPreview()
+    previewUnitType = nil
+    for _, frame in pairs(ns.frames or {}) do
+        if frame.MIUF_CastbarPreview then
+            RestorePreviewParent(frame)
+            ClearActiveVisuals(frame.Castbar)
+            frame.Castbar.Text:SetText("")
+            frame.Castbar.Icon:SetTexture(nil)
+            frame.Castbar:SetValue(0)
+            frame.CastbarHolder:Hide()
+        end
+    end
+end
+
+function ns.SetCastbarPreview(unitType)
+    if InCombatLockdown() or not CONFIGURABLE_CASTBAR_TYPES[unitType] then ns.ClearCastbarPreview(); return end
+    if previewUnitType ~= unitType then ns.ClearCastbarPreview() end
+    previewUnitType = unitType
+    for _, frame in pairs(ns.frames or {}) do ShowCastbarPreview(frame) end
+end
 
 local function ShowTerminal(frame, text)
     local bar = frame.Castbar
@@ -272,14 +324,18 @@ function ns.ApplyCastbarGeometry(frame, settings)
     if InCombatLockdown and InCombatLockdown() then return end
     local holder, bar = frame.CastbarHolder, frame.Castbar
     if not holder or not bar or not settings then return end
-    local height, x, y = settings.height, settings.xOffset, settings.yOffset
+    local width, height, x, y = settings.width, settings.height, settings.xOffset, settings.yOffset
+    if not CONFIGURABLE_CASTBAR_TYPES[frame.MIUF_UnitType] then
+        -- Ignore legacy Focus/Boss profile geometry without deleting saved data.
+        width, height, x, y = 0, 18, 0, -3
+    end
     holder:ClearAllPoints()
     holder:SetHeight(height)
     holder:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", x, y)
-    if settings.width == 0 then
+    if width == 0 then
         holder:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", x, y)
     else
-        holder:SetWidth(settings.width)
+        holder:SetWidth(width)
     end
     bar:ClearAllPoints()
     bar:SetPoint("TOPLEFT", height + 1, -1)
