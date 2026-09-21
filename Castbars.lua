@@ -2,6 +2,7 @@ local ADDON_NAME, ns = ...
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
+local TERMINAL_HOLD = 0.5
 local timeFormatter = C_StringUtil.CreateSecondsFormatter()
 timeFormatter:SetDefaultAbbreviation(Enum.SecondsFormatterAbbreviation.OneLetter)
 timeFormatter:SetMinInterval(Enum.SecondsFormatterInterval.Seconds)
@@ -32,15 +33,35 @@ local function SetInterruptibleVisual(bar, notInterruptible)
     end
 end
 
-local function ClearCastbarVisuals(bar)
-    if not bar then return end
+local function ClearActiveVisuals(bar)
     bar.Time.binding:SetToDefaults()
     bar.Time.binding:SetEnabled(false)
     bar.Time:SetText("")
-    bar.Text:SetText("")
-    bar.Icon:SetTexture(nil)
     bar.Shield:SetAlpha(0)
     bar.Spark:Hide()
+end
+
+local function ResetCastState(bar)
+    local state = bar.MIUF_CastState
+    state.generation = state.generation + 1
+    state.active, state.terminal, state.castBarID, state.unit, state.mode = nil, nil, nil, nil, nil
+end
+
+local function ClearCastbar(frame)
+    local bar = frame.Castbar
+    if bar then
+        ResetCastState(bar)
+        ClearActiveVisuals(bar)
+        bar:SetMinMaxValues(0, 1)
+        bar:SetValue(0)
+        bar.Text:SetText("")
+        bar.Icon:SetTexture(nil)
+    end
+    if frame.CastbarHolder then frame.CastbarHolder:Hide() end
+end
+
+local function PublicCastID(value)
+    if not canaccessvalue or canaccessvalue(value) then return value end
 end
 
 local function RefreshCastbar(frame)
@@ -48,37 +69,42 @@ local function RefreshCastbar(frame)
     local bar = frame and frame.Castbar
     local unit = ns.GetFrameDisplayUnit(frame)
     if not holder or not bar or not unit or not UnitExists(unit) then
-        ClearCastbarVisuals(bar)
-        if holder then holder:Hide() end
+        if frame then ClearCastbar(frame) end
         return
     end
 
-    local name, displayName, texture, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
-    local duration, direction
+    local name, displayName, texture, _, _, _, _, notInterruptible, _, castBarID = UnitCastingInfo(unit)
+    local duration, direction, mode
 
     if name then
         duration = UnitCastingDuration and UnitCastingDuration(unit)
         direction = Enum.StatusBarTimerDirection.ElapsedTime
+        mode = "cast"
     else
         local isEmpowered
-        name, displayName, texture, _, _, _, notInterruptible, _, isEmpowered = UnitChannelInfo(unit)
+        name, displayName, texture, _, _, _, notInterruptible, _, isEmpowered, _, castBarID = UnitChannelInfo(unit)
         if name then
             if isEmpowered and UnitEmpoweredChannelDuration then
                 duration = UnitEmpoweredChannelDuration(unit, true)
                 direction = Enum.StatusBarTimerDirection.ElapsedTime
+                mode = "empower"
             else
                 duration = UnitChannelDuration and UnitChannelDuration(unit)
                 direction = Enum.StatusBarTimerDirection.RemainingTime
+                mode = "channel"
             end
         end
     end
 
     if not name or not duration then
-        ClearCastbarVisuals(bar)
-        holder:Hide()
+        ClearCastbar(frame)
         return
     end
 
+    ResetCastState(bar)
+    local state = bar.MIUF_CastState
+    state.active, state.unit, state.castBarID = true, unit, PublicCastID(castBarID)
+    state.mode = mode
     if displayName then
         bar.Text:SetText(displayName)
     else
@@ -101,6 +127,80 @@ end
 
 ns.UpdateFrameCastbar = RefreshCastbar
 
+local function ShowTerminal(frame, text)
+    local bar = frame.Castbar
+    local state = bar.MIUF_CastState
+    state.generation = state.generation + 1
+    state.active, state.terminal = nil, true
+    local generation = state.generation
+    ClearActiveVisuals(bar)
+    -- Replace native timer progression with a static terminal bar. Never read
+    -- or calculate with restricted progress/timestamps to freeze the display.
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(1)
+    bar.Text:SetText(text)
+    C_Timer.After(TERMINAL_HOLD, function()
+        if state.generation == generation and state.terminal then ClearCastbar(frame) end
+    end)
+end
+
+local START_EVENTS = {
+    UNIT_SPELLCAST_START=true, UNIT_SPELLCAST_CHANNEL_START=true, UNIT_SPELLCAST_EMPOWER_START=true,
+}
+local STOP_EVENTS = {
+    UNIT_SPELLCAST_STOP=true, UNIT_SPELLCAST_CHANNEL_STOP=true, UNIT_SPELLCAST_EMPOWER_STOP=true,
+    UNIT_SPELLCAST_FAILED=true, UNIT_SPELLCAST_INTERRUPTED=true,
+}
+
+local function HandleCastEvent(frame, event, unit, _, _, arg4, arg5, arg6)
+    if not event:match("^UNIT_SPELLCAST_") then RefreshCastbar(frame); return end
+    local displayUnit = ns.GetFrameDisplayUnit(frame)
+    if unit ~= displayUnit then return end
+    local state = frame.Castbar.MIUF_CastState
+    if state.unit ~= unit or not UnitExists(unit) or START_EVENTS[event] then
+        RefreshCastbar(frame)
+        return
+    end
+
+    -- Retail UnitDocumentation.lua: payload positions include unit/GUID/spell.
+    -- GUID and spell ID may be secret; only the public castBarID is compared.
+    local castBarID, interruptedBy = arg4
+    if event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+        interruptedBy, castBarID = arg4, arg5
+    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        interruptedBy, castBarID = arg5, arg6
+    end
+    castBarID = PublicCastID(castBarID)
+    if castBarID and state.castBarID and castBarID ~= state.castBarID then return end
+
+    if STOP_EVENTS[event] then
+        if (event == "UNIT_SPELLCAST_STOP" and state.mode ~= "cast")
+            or (event == "UNIT_SPELLCAST_CHANNEL_STOP" and state.mode ~= "channel")
+            or (event == "UNIT_SPELLCAST_EMPOWER_STOP" and state.mode ~= "empower") then return end
+        local name, _, _, _, _, _, _, _, _, liveID = UnitCastingInfo(unit)
+        if not name then name, _, _, _, _, _, _, _, _, _, liveID = UnitChannelInfo(unit) end
+        liveID = PublicCastID(liveID)
+        -- A newer cast can already be queryable before its START event arrives.
+        -- Without IDs, resync live data instead of assigning failure to it.
+        if name and (not castBarID or not liveID or liveID ~= castBarID) then
+            RefreshCastbar(frame)
+            return
+        end
+        if state.terminal then return end -- trailing STOP must not erase the hold
+        if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or interruptedBy then
+            if state.active and castBarID and castBarID == state.castBarID then
+                ShowTerminal(frame, event == "UNIT_SPELLCAST_FAILED" and "Failed" or "Interrupted")
+            else
+                RefreshCastbar(frame)
+            end
+        else
+            ClearCastbar(frame)
+        end
+    elseif not state.terminal then
+        RefreshCastbar(frame)
+    end
+end
+
 local function CreateCastbar(frame)
     if not frame or frame.Castbar or not CASTBAR_TYPES[frame.MIUF_UnitType] then return end
 
@@ -115,6 +215,7 @@ local function CreateCastbar(frame)
     holder:Hide()
 
     local bar = CreateFrame("StatusBar", nil, holder)
+    bar.MIUF_CastState = {generation=0}
     bar:SetPoint("TOPLEFT", 19, -1)
     bar:SetPoint("BOTTOMRIGHT", -1, 1)
     bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("flat") or FLAT)
@@ -163,10 +264,15 @@ local function CreateCastbar(frame)
     text:SetWordWrap(false)
     bar.Text = text
 
-    holder:SetScript("OnHide", function() timer.binding:SetEnabled(false) end)
+    holder:SetScript("OnHide", function()
+        timer.binding:SetEnabled(false)
+        if bar.MIUF_CastState.terminal then ClearCastbar(frame) end
+    end)
     holder:SetScript("OnShow", function()
-        timer.binding:SetEnabled(true)
-        timer.binding:UpdateFontString()
+        if bar.MIUF_CastState.active then
+            timer.binding:SetEnabled(true)
+            timer.binding:UpdateFontString()
+        end
     end)
 
     frame.CastbarHolder = holder
@@ -192,10 +298,13 @@ local function CreateCastbar(frame)
         events:RegisterEvent("PLAYER_TARGET_CHANGED")
     elseif frame.MIUF_Unit == "focus" then
         events:RegisterEvent("PLAYER_FOCUS_CHANGED")
+    elseif frame.MIUF_UnitType == "boss" then
+        events:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+        ns.RegisterFrameUnitEvent(events, "UNIT_TARGETABLE_CHANGED", frame)
     end
 
-    events:SetScript("OnEvent", function()
-        RefreshCastbar(frame)
+    events:SetScript("OnEvent", function(_, event, ...)
+        HandleCastEvent(frame, event, ...)
     end)
 
     frame.MIUF_CastbarEvents = events
