@@ -15,6 +15,69 @@ local CASTBAR_TYPES = {
     boss = true,
 }
 
+local function HideStageSeparators(bar)
+    for _, separator in ipairs(bar.StageSeparators) do
+        separator.fraction = nil
+        separator:Hide()
+    end
+end
+
+local function CreateStageSeparator(bar)
+    local separator = bar:CreateTexture(nil, "OVERLAY", nil, -1)
+    separator:SetColorTexture(0.08, 0.08, 0.08, 0.7)
+    separator:SetWidth(1)
+    separator:Hide()
+    bar.StageSeparators[#bar.StageSeparators + 1] = separator
+    return separator
+end
+
+local function LayoutStageSeparators(bar)
+    local width = bar:GetWidth()
+    if (canaccessvalue and not canaccessvalue(width)) or width < 1 then
+        for _, separator in ipairs(bar.StageSeparators) do separator:Hide() end
+        return
+    end
+    for _, separator in ipairs(bar.StageSeparators) do
+        local fraction = separator.fraction
+        if fraction then
+            local x = math.max(0.5, math.min(width - 0.5, width * fraction))
+            separator:ClearAllPoints()
+            separator:SetPoint("TOP", bar, "TOPLEFT", x, -1)
+            separator:SetPoint("BOTTOM", bar, "BOTTOMLEFT", x, 1)
+            separator:Show()
+        end
+    end
+end
+
+local function UpdateStageSeparators(frame)
+    local bar = frame.Castbar
+    HideStageSeparators(bar)
+    local state = bar.MIUF_CastState
+    if not state.active or state.mode ~= "empower" or not frame.CastbarHolder:IsVisible()
+        or state.unit ~= ns.GetFrameDisplayUnit(frame) or not UnitEmpoweredStagePercentages then return end
+    -- Retail returns non-secret, one-based per-stage fractions, including a
+    -- final hold-at-max share. Match UnitEmpoweredChannelDuration(unit, true).
+    local stages = UnitEmpoweredStagePercentages(state.unit, true)
+    if (canaccessvalue and not canaccessvalue(stages)) or type(stages) ~= "table" then return end
+    local total, count = 0, 0
+    for i = 1, #stages do
+        local fraction = stages[i]
+        if (canaccessvalue and not canaccessvalue(fraction)) or type(fraction) ~= "number"
+            or not (fraction >= 0 and fraction <= 1) then
+            HideStageSeparators(bar)
+            return
+        end
+        total = total + fraction
+        -- The last share ends at the bar edge, not at an interior separator.
+        if i < #stages and fraction > 0 and total > 0 and total < 1 then
+            count = count + 1
+            local separator = bar.StageSeparators[count] or CreateStageSeparator(bar)
+            separator.fraction = total
+        end
+    end
+    LayoutStageSeparators(bar)
+end
+
 local function SetInterruptibleVisual(bar, notInterruptible)
     if bar.Shield.SetAlphaFromBoolean then
         bar.Shield:SetAlphaFromBoolean(notInterruptible, 1, 0)
@@ -34,6 +97,7 @@ local function SetInterruptibleVisual(bar, notInterruptible)
 end
 
 local function ClearActiveVisuals(bar)
+    HideStageSeparators(bar)
     bar.Time.binding:SetToDefaults()
     bar.Time.binding:SetEnabled(false)
     bar.Time:SetText("")
@@ -120,6 +184,7 @@ local function RefreshCastbar(frame)
     binding:UpdateFontString()
     bar.Spark:Show()
     SetInterruptibleVisual(bar, notInterruptible)
+    UpdateStageSeparators(frame)
     bar:Show()
     holder:Show()
     binding:SetEnabled(holder:IsVisible())
@@ -220,6 +285,10 @@ local function CreateCastbar(frame)
     bar:SetPoint("BOTTOMRIGHT", -1, 1)
     bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("flat") or FLAT)
     bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+    bar.StageSeparators = {}
+    -- Reserve the common case; grow once and reuse if Retail reports more.
+    for i = 1, 4 do CreateStageSeparator(bar) end
+    bar:SetScript("OnSizeChanged", LayoutStageSeparators)
 
     local background = bar:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(bar)
@@ -265,6 +334,7 @@ local function CreateCastbar(frame)
     bar.Text = text
 
     holder:SetScript("OnHide", function()
+        HideStageSeparators(bar)
         timer.binding:SetEnabled(false)
         if bar.MIUF_CastState.terminal then ClearCastbar(frame) end
     end)
@@ -272,6 +342,7 @@ local function CreateCastbar(frame)
         if bar.MIUF_CastState.active then
             timer.binding:SetEnabled(true)
             timer.binding:UpdateFontString()
+            UpdateStageSeparators(frame)
         end
     end)
 
