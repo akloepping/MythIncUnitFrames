@@ -3,7 +3,7 @@
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
 ## Version: 0.10.0-alpha
-## IconTexture: Interface\AddOns\MythIncUnitFrames\Artwork\MIUF_Icon_64.png
+## IconTexture: Interface\AddOns\MythIncUnitFrames\Media\Artwork\MIUF_Icon_64.png
 ## SavedVariables: MythIncUnitFramesDB
 
 Core.lua

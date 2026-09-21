@@ -5,18 +5,98 @@ local ADDON_NAME, ns = ...
 -- here rather than duplicated across runtime and configuration code.
 ns.Media = {
     fonts = {
-        friz = { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
-        arial = { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF" },
-        morpheus = { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF" },
-        skurri = { name = "Skurri", path = "Fonts\\SKURRI.TTF" },
+        friz = { 
+            name = "Friz Quadrata",
+            path = "Fonts\\FRIZQT__.TTF" 
+        },
+
+        arial = { 
+            name = "Arial Narrow", 
+            path = "Fonts\\ARIALN.TTF" 
+        },
+
+        morpheus = { 
+            name = "Morpheus", 
+            path = "Fonts\\MORPHEUS.TTF" 
+        },
+
+        uncial = {
+            name = "Uncial Antiqua",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Fonts\\UncialAntiqua-Regular.ttf",
+        },
+
+        oxanium = {
+            name = "Oxanium",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Fonts\\Oxanium-Medium.ttf",
+        },
+
+        orbitron = {
+            name = "Orbitron",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Fonts\\Orbitron-Medium.ttf",
+        },
     },
-    fontOrder = { "friz", "arial", "morpheus", "skurri" },
+
+    fontOrder = { 
+        "friz", 
+        "arial", 
+        "morpheus", 
+        "uncial",
+        "oxanium",
+        "orbitron"
+     },
 
     textures = {
-        flat = { name = "Flat", path = "Interface\\Buttons\\WHITE8x8" },
-        blizzard = { name = "Blizzard", path = "Interface\\TargetingFrame\\UI-StatusBar" },
+        flat = {
+            name = "Flat",
+            path = "Interface\\Buttons\\WHITE8x8",
+        },
+
+        blizzard = {
+            name = "Blizzard",
+            path = "Interface\\TargetingFrame\\UI-StatusBar",
+        },
+
+        smooth = {
+            name = "Smooth",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Smooth.tga",
+        },
+
+        soft = {
+            name = "Soft",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Soft.tga",
+        },
+
+        satin = {
+            name = "Satin",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Satin.tga",
+        },
+
+        glass = {
+            name = "Glass",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Glass.tga",
+        },
+
+        steel = {
+            name = "Steel",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Steel.tga",
+        },
+
+        stone = {
+            name = "Stone",
+            path = "Interface\\AddOns\\MythIncUnitFrames\\Media\\Textures\\Stone.tga",
+        },
     },
-    textureOrder = { "flat", "blizzard" },
+    
+    textureOrder = {
+        "flat",
+        "blizzard",
+        "smooth",
+        "soft",
+        "satin",
+        "glass",
+        "steel",
+        "stone",
+    },
 
     healthColors = {
         automatic = { name = "Automatic" },
