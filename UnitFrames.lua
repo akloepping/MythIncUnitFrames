@@ -465,7 +465,7 @@ end
 
 local function ApplyFrameState(frame,state)
     local appearance=state.appearance; local width,height=state.size.width,state.size.height; frame:SetSize(width,height)
-    if ns.ApplyCastbarGeometry then ns.ApplyCastbarGeometry(frame,state.castbar) end
+    if ns.ApplyFrameCastbarSettings then ns.ApplyFrameCastbarSettings(frame,state.castbar) end
     local texture=ns.GetTexturePath(appearance.texture); frame.Health:SetStatusBarTexture(texture); frame.Power:SetStatusBarTexture(texture)
     frame.Background:SetColorTexture(0.03,0.03,0.03,appearance.backgroundOpacity/100); frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,appearance.borderOpacity/100)
     local showPortrait=frame.Portrait and appearance.showPortrait

@@ -132,7 +132,7 @@ local function RefreshCastbar(frame)
     local holder = frame and frame.CastbarHolder
     local bar = frame and frame.Castbar
     local unit = ns.GetFrameDisplayUnit(frame)
-    if not holder or not bar or not unit or not UnitExists(unit) then
+    if not holder or not bar or frame.MIUF_CastbarEnabled == false or not unit or not UnitExists(unit) then
         if frame then ClearCastbar(frame) end
         return
     end
@@ -218,6 +218,7 @@ local STOP_EVENTS = {
 }
 
 local function HandleCastEvent(frame, event, unit, _, _, arg4, arg5, arg6)
+    if frame.MIUF_CastbarEnabled == false then ClearCastbar(frame); return end
     if not event:match("^UNIT_SPELLCAST_") then RefreshCastbar(frame); return end
     local displayUnit = ns.GetFrameDisplayUnit(frame)
     if unit ~= displayUnit then return end
@@ -288,9 +289,21 @@ function ns.ApplyCastbarGeometry(frame, settings)
     bar.Spark:SetHeight(height - 2)
 end
 
+function ns.ApplyFrameCastbarSettings(frame, settings)
+    if InCombatLockdown() or not frame.Castbar or not settings then return end
+    ns.ApplyCastbarGeometry(frame, settings)
+    local wasEnabled = frame.MIUF_CastbarEnabled
+    frame.MIUF_CastbarEnabled = settings.enabled ~= false
+    if not frame.MIUF_CastbarEnabled then
+        ClearCastbar(frame)
+    elseif wasEnabled == false then
+        RefreshCastbar(frame)
+    end
+end
+
 function ns.ApplyCastbarLayout(unitType, settings)
     for _, frame in pairs(ns.frames or {}) do
-        if frame.MIUF_UnitType == unitType then ns.ApplyCastbarGeometry(frame, settings) end
+        if frame.MIUF_UnitType == unitType then ns.ApplyFrameCastbarSettings(frame, settings) end
     end
 end
 
@@ -377,7 +390,7 @@ local function CreateCastbar(frame)
 
     frame.CastbarHolder = holder
     frame.Castbar = bar
-    if ns.GetCastbarLayout then ns.ApplyCastbarGeometry(frame, ns.GetCastbarLayout(frame.MIUF_UnitType)) end
+    if ns.GetCastbarLayout then ns.ApplyFrameCastbarSettings(frame, ns.GetCastbarLayout(frame.MIUF_UnitType)) end
 
     local events = CreateFrame("Frame")
     ns.RegisterFrameUnitEvent(events, "UNIT_SPELLCAST_START", frame)

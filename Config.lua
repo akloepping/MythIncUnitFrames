@@ -587,6 +587,7 @@ local function RefreshFramesPage()
     castbarControls.Panel:SetShown(frameSettings.castbar~=nil)
     if frameSettings.castbar then
         local c=frameSettings.castbar
+        castbarControls.enabled:SetChecked(c.enabled~=false)
         castbarControls.width:SetValue(c.width==0 and size.width or c.width)
         castbarControls.height:SetValue(c.height)
         castbarControls.xOffset:SetValue(c.xOffset)
@@ -784,6 +785,23 @@ local function CreateFrameLayoutControls(parent)
     portraitSlider=FrameSlider(portrait,"PortraitPercent","Portrait Width (%)",12,40,360,28,-96)
     local castbar=MakeFrameSection(parent,"Cast Bar",0,-244,426,160)
     castbarControls.Panel=castbar
+    local enabled=CreateFrame("CheckButton",nil,castbar,"UICheckButtonTemplate"); Skin.Check(enabled)
+    enabled:SetSize(24,24); enabled:SetPoint("TOPRIGHT",-164,-3)
+    local label=enabled:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetTextColor(unpack(Skin.text))
+    label:SetPoint("LEFT",enabled,"RIGHT",2,0); label:SetText("Enable Cast Bar")
+    castbarControls.enabled=enabled
+    enabled:SetScript("OnClick",function(self)
+        if refreshing then return end
+        local settings=ns.ConfigSessionGetFrame(selectedType)
+        if not settings.castbar then return end
+        settings.castbar.enabled=self:GetChecked()==true
+        ns.ConfigSessionStageFrame(selectedType,settings)
+        MarkPending("Cast bar changes are pending.")
+        if not InCombatLockdown() then
+            ns.PreviewFrameType(selectedType,settings)
+            previewFrameType=selectedType
+        end
+    end)
     local specs={
         {"width","Width",100,600,18,-46}, {"height","Height",18,40,234,-46},
         {"xOffset","X Offset",-300,300,18,-112}, {"yOffset","Y Offset",-300,300,234,-112},

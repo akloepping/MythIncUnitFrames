@@ -46,7 +46,7 @@ local CASTBAR_TYPES = {player=true,target=true,focus=true,boss=true}
 for unitType in pairs(defaultSizes) do
     defaultBarLayout[unitType] = { powerPercent = 22 }
     if CASTBAR_TYPES[unitType] then
-        defaultBarLayout[unitType].castbar = {width=0,height=18,xOffset=0,yOffset=-3}
+        defaultBarLayout[unitType].castbar = {enabled=true,width=0,height=18,xOffset=0,yOffset=-3}
     end
     defaultAppearance[unitType] = {
         fontSize = unitType == "party" and 11 or 12,
@@ -368,6 +368,7 @@ function ns.NormalizeCastbarLayout(values)
     values=type(values)=="table" and values or {}
     local width=tonumber(values.width)
     return {
+        enabled=values.enabled~=false,
         -- Zero means inherited width; it is never used as a pixel dimension.
         width=width and width~=0 and CastbarNumber(width,0,100,600) or 0,
         height=CastbarNumber(values.height,18,18,40),

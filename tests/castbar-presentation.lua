@@ -7,11 +7,14 @@ local function object(parent)
 end
 local function noop() end
 for _, key in ipairs({"SetBackdrop", "SetBackdropColor", "SetBackdropBorderColor", "SetFrameLevel",
-    "SetAllPoints", "SetColorTexture", "SetFont", "SetJustifyH", "SetWordWrap", "SetBlendMode"}) do
+    "SetAllPoints", "SetColorTexture", "SetFont", "SetJustifyH", "SetWordWrap", "SetBlendMode",
+    "SetVertexColor", "SetMinMaxValues", "SetValue"}) do
     methods[key] = noop
 end
 function methods:GetFrameLevel() return 1 end
 function methods:SetHeight(h) self.height=h end
+function methods:SetWidth(w) self.width=w end
+function methods:ClearAllPoints() self.points={} end
 function methods:SetSize(w,h) self.width=w; self.height=h end
 function methods:SetPoint(...) self.points[#self.points+1]={...} end
 function methods:CreateTexture() return object(self) end
@@ -31,6 +34,7 @@ function methods:SetTimerDuration(d, interpolation, direction)
 end
 function methods:SetScript(event, fn) self.scripts[event]=fn end
 function methods:RegisterEvent(event) self.events[event]=true end
+function methods:UnregisterEvent(event) self.events[event]=nil end
 function methods:Hide()
     if self.shown then self.shown=false; if self.scripts.OnHide then self.scripts.OnHide(self) end end
 end
@@ -39,6 +43,8 @@ function methods:Show()
 end
 function methods:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
 function CreateFrame(_, _, parent) return object(parent) end
+local combat=false
+function InCombatLockdown() return combat end
 Enum={SecondsFormatterAbbreviation={OneLetter=1}, SecondsFormatterInterval={Seconds=1},
     StatusBarInterpolation={Immediate=1}, StatusBarTimerDirection={ElapsedTime=1, RemainingTime=2}}
 C_StringUtil={CreateSecondsFormatter=function()
@@ -75,6 +81,9 @@ function UnitCastingDuration(unit) return current[unit].duration end
 UnitChannelDuration=UnitCastingDuration
 function UnitEmpoweredChannelDuration(unit, hold) assert(hold==true); return current[unit].duration end
 local ns={frames={}}
+function ns.GetCastbarLayout()
+    return {enabled=true,width=0,height=18,xOffset=0,yOffset=-3}
+end
 function ns.GetFrameDisplayUnit(frame) return frame and (frame.displayUnit or frame.MIUF_Unit) end
 function ns.RegisterFrameUnitEvent(events, event) events:RegisterEvent(event) end
 for _, unit in ipairs({"player","target","focus","boss1","boss2","boss3","boss4","boss5","pet"}) do
@@ -116,7 +125,9 @@ for unit, frame in pairs(ns.frames) do
             frame.CastbarHolder:Hide(); assert(not bar.Time.binding.enabled)
             frame.CastbarHolder:Show(); assert(bar.Time.binding.enabled)
             current[unit]=nil
-            frame.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_STOP",unit)
+            local stop=mode=="cast" and "UNIT_SPELLCAST_STOP"
+                or (mode=="channel" and "UNIT_SPELLCAST_CHANNEL_STOP" or "UNIT_SPELLCAST_EMPOWER_STOP")
+            frame.MIUF_CastbarEvents.scripts.OnEvent(nil,stop,unit)
             clear(frame)
         end
         current[unit]={mode="cast",name="Spell",texture=123,lock=false,duration=secret}
@@ -139,4 +150,82 @@ assert(player.Castbar.Icon.texture==456 and player.Castbar.Text.text=="Vehicle")
 player.displayUnit=nil; ns.UpdateFrameCastbar(player); clear(player)
 ns.RefreshCastbars()
 assert(created==count and bindings==8, "no allocations while refreshing")
+
+-- The same configuration application path serves staged previews, Apply and
+-- Revert. Disabling must also block subsequent events and invalidate old cleanup.
+for _, unitType in ipairs({"player","target","focus","boss"}) do
+    for unit, frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==unitType then
+            current[unit]={mode="cast",name="Active",texture=123,lock=false,duration=secret}
+            ns.UpdateFrameCastbar(frame)
+        end
+    end
+    local layout={enabled=false,width=0,height=18,xOffset=0,yOffset=-3}
+    ns.ApplyCastbarLayout(unitType,layout)
+    for unit, frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==unitType then
+            clear(frame)
+            frame.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_START",unit)
+            ns.UpdateFrameCastbar(frame)
+            clear(frame)
+        end
+    end
+    layout.enabled=true
+    ns.ApplyCastbarLayout(unitType,layout)
+    for unit, frame in pairs(ns.frames) do
+        if frame.MIUF_UnitType==unitType then
+            assert(frame.CastbarHolder.shown and frame.Castbar.Text.text=="Active")
+            local state=frame.Castbar.MIUF_CastState
+            state.terminal=true
+            local generation=state.generation
+            ns.ApplyFrameCastbarSettings(frame,{enabled=false,width=0,height=18,xOffset=0,yOffset=-3})
+            clear(frame)
+            assert(not state.terminal and state.generation>generation)
+            ns.ApplyFrameCastbarSettings(frame,layout)
+            assert(frame.CastbarHolder.shown and frame.Castbar.Time.binding.enabled)
+        end
+    end
+end
+assert(created==count and bindings==8, "toggling must reuse existing bars")
+
+-- Check the actual Blizzard ownership module, with only Player castbar present.
+local hooks={}
+function hooksecurefunc(target,key,fn)
+    local original=target[key]
+    target[key]=function(...)
+        if original then original(...) end
+        fn(...)
+    end
+end
+function methods:GetParent() return self.parent end
+function methods:SetParent(parent) self.parent=parent end
+function IsLoggedIn() return true end
+local playerEnabled, castbarEnabled=true,true
+function ns.IsFrameTypeEnabled(unitType) return unitType=="player" and playerEnabled end
+function ns.GetCastbarLayout() return {enabled=castbarEnabled} end
+function ns.SaveCastbarLayout(_,layout) castbarEnabled=layout.enabled end
+PlayerCastingBarFrame=object(object())
+local originalParent=PlayerCastingBarFrame:GetParent()
+local originalCreateFrame=CreateFrame
+function CreateFrame(...)
+    local frame=originalCreateFrame(...)
+    hooks[#hooks+1]=frame
+    return frame
+end
+assert(loadfile("BlizzardFrames.lua"))("MythIncUnitFrames",ns)
+assert(PlayerCastingBarFrame:GetParent()~=originalParent)
+ns.SaveCastbarLayout("player",{enabled=false})
+assert(PlayerCastingBarFrame:GetParent()==originalParent)
+combat=true
+ns.SaveCastbarLayout("player",{enabled=true})
+assert(PlayerCastingBarFrame:GetParent()==originalParent, "ownership must defer in combat")
+combat=false
+for _, frame in ipairs(hooks) do
+    if frame.events.PLAYER_REGEN_ENABLED then frame.scripts.OnEvent(frame,"PLAYER_REGEN_ENABLED") end
+end
+assert(PlayerCastingBarFrame:GetParent()~=originalParent)
+playerEnabled=false
+ns.SetFrameTypeEnabled("player",false)
+assert(PlayerCastingBarFrame:GetParent()==originalParent)
+print("PASS: castbar enable/disable, Boss family, resume/cleanup, Player ownership and combat deferral")
 print("PASS: castbar presentation, eight frames, cast/channel/empower, restricted sinks, cleanup, vehicle routing")

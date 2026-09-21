@@ -135,8 +135,8 @@ local function UpdatePlayerCastbarSuppression()
         end)
     end
 
-    -- Temporary ownership condition until a dedicated castbar setting exists.
-    if ns.IsFrameTypeEnabled("player") then
+    -- Ownership follows saved settings, not staged configuration previews.
+    if ns.IsFrameTypeEnabled("player") and ns.GetCastbarLayout("player").enabled then
         if frame:GetParent() ~= playerCastbarHiddenParent then
             changingPlayerCastbarParent = true
             frame:SetParent(playerCastbarHiddenParent)
@@ -162,6 +162,7 @@ hooksecurefunc(ns, "ResetAllSettings", UpdatePartySuppression)
 hooksecurefunc(ns, "SetFrameTypeEnabled", UpdatePlayerCastbarSuppression)
 hooksecurefunc(ns, "SetActiveProfile", UpdatePlayerCastbarSuppression)
 hooksecurefunc(ns, "ResetAllSettings", UpdatePlayerCastbarSuppression)
+hooksecurefunc(ns, "SaveCastbarLayout", UpdatePlayerCastbarSuppression)
 
 local function SuppressBlizzardFrames()
     if InCombatLockdown() then
