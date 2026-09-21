@@ -20,6 +20,19 @@ raidHiddenParent:Hide()
 local raidContainer, raidOriginalParent
 local changingRaidParent = false
 
+-- Reversible Blizzard Party-frame suppression.
+-- Keep Blizzard's events, pools and visibility state intact while MIUF owns Party.
+local partyHiddenParent = CreateFrame("Frame")
+partyHiddenParent:Hide()
+local partyFrame, partyOriginalParent
+local changingPartyParent = false
+
+-- Keep the normal Player castbar alive while reversibly hiding it.
+local playerCastbarHiddenParent = CreateFrame("Frame")
+playerCastbarHiddenParent:Hide()
+local playerCastbar, playerCastbarOriginalParent
+local changingPlayerCastbarParent = false
+
 local function UpdateRaidSuppression()
     if not IsLoggedIn() or changingRaidParent then return end
     if InCombatLockdown() then
@@ -60,11 +73,95 @@ local function UpdateRaidSuppression()
     end
 end
 
+local function UpdatePartySuppression()
+    if not IsLoggedIn() or changingPartyParent then return end
+
+    if InCombatLockdown() then
+        events:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+
+    local frame = PartyFrame
+    if not frame then return end
+
+    if partyFrame ~= frame then
+        partyFrame = frame
+        partyOriginalParent = frame:GetParent()
+
+        hooksecurefunc(frame, "SetParent", function(self, parent)
+            if changingPartyParent then return end
+
+            -- Preserve a later Blizzard parent change for restoration.
+            if parent ~= partyHiddenParent then
+                partyOriginalParent = parent
+            end
+
+            UpdatePartySuppression()
+        end)
+    end
+
+    if ns.IsFrameTypeEnabled("party") then
+        if frame:GetParent() ~= partyHiddenParent then
+            changingPartyParent = true
+            frame:SetParent(partyHiddenParent)
+            changingPartyParent = false
+        end
+    elseif frame:GetParent() == partyHiddenParent then
+        changingPartyParent = true
+        frame:SetParent(partyOriginalParent)
+        changingPartyParent = false
+    end
+end
+
+local function UpdatePlayerCastbarSuppression()
+    if not IsLoggedIn() or changingPlayerCastbarParent then return end
+    if InCombatLockdown() then
+        events:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+
+    local frame = PlayerCastingBarFrame
+    if not frame then return end
+    if playerCastbar ~= frame then
+        playerCastbar = frame
+        playerCastbarOriginalParent = frame:GetParent()
+        hooksecurefunc(frame, "SetParent", function(self, parent)
+            if changingPlayerCastbarParent then return end
+            -- Preserve a later Blizzard parent change for restoration.
+            if parent ~= playerCastbarHiddenParent then
+                playerCastbarOriginalParent = parent
+            end
+            UpdatePlayerCastbarSuppression()
+        end)
+    end
+
+    -- Temporary ownership condition until a dedicated castbar setting exists.
+    if ns.IsFrameTypeEnabled("player") then
+        if frame:GetParent() ~= playerCastbarHiddenParent then
+            changingPlayerCastbarParent = true
+            frame:SetParent(playerCastbarHiddenParent)
+            changingPlayerCastbarParent = false
+        end
+    elseif frame:GetParent() == playerCastbarHiddenParent then
+        changingPlayerCastbarParent = true
+        frame:SetParent(playerCastbarOriginalParent)
+        changingPlayerCastbarParent = false
+    end
+end
+
 -- Saved-setting changes are the application boundary, including non-GUI
 -- callers. The GUI currently reloads after Apply and profile selection.
 hooksecurefunc(ns, "SetFrameTypeEnabled", UpdateRaidSuppression)
 hooksecurefunc(ns, "SetActiveProfile", UpdateRaidSuppression)
 hooksecurefunc(ns, "ResetAllSettings", UpdateRaidSuppression)
+
+hooksecurefunc(ns, "SetFrameTypeEnabled", UpdatePartySuppression)
+hooksecurefunc(ns, "SetActiveProfile", UpdatePartySuppression)
+hooksecurefunc(ns, "ResetAllSettings", UpdatePartySuppression)
+
+hooksecurefunc(ns, "SetFrameTypeEnabled", UpdatePlayerCastbarSuppression)
+hooksecurefunc(ns, "SetActiveProfile", UpdatePlayerCastbarSuppression)
+hooksecurefunc(ns, "ResetAllSettings", UpdatePlayerCastbarSuppression)
 
 local function SuppressBlizzardFrames()
     if InCombatLockdown() then
@@ -81,16 +178,6 @@ local function SuppressBlizzardFrames()
     -- Block the containers too, so layout resets cannot restore their children.
     SuppressFrame(BossTargetFrameContainer)
     for i = 1, 5 do SuppressFrame(_G["Boss" .. i .. "TargetFrame"]) end
-
-    SuppressFrame(PartyFrame)
-    if PartyFrame and PartyFrame.PartyMemberFramePool then
-        for frame in PartyFrame.PartyMemberFramePool:EnumerateActive() do
-            SuppressFrame(frame)
-        end
-    end
-    -- CompactPartyFrame_Generate parents compact party frames to PartyFrame.
-    -- Later-created members remain covered by the blocked parent, as in oUF.
-    for i = 1, 5 do SuppressFrame(_G["CompactPartyFrameMember" .. i]) end
 end
 
 events:RegisterEvent("PLAYER_LOGIN")
@@ -107,14 +194,20 @@ events:SetScript("OnEvent", function(_, event, addonName)
         if addonName ~= "Blizzard_UnitFrame" then return end
     elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
         UpdateRaidSuppression()
+        UpdatePartySuppression()
+        UpdatePlayerCastbarSuppression()
         return
     end
     SuppressBlizzardFrames()
     UpdateRaidSuppression()
+    UpdatePartySuppression()
+    UpdatePlayerCastbarSuppression()
 end)
 
 -- Also support MIUF being loaded after the login event.
 if IsLoggedIn() then
     SuppressBlizzardFrames()
     UpdateRaidSuppression()
+    UpdatePartySuppression()
+    UpdatePlayerCastbarSuppression()
 end
