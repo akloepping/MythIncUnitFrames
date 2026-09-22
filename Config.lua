@@ -1,5 +1,7 @@
 local ADDON_NAME, ns = ...
 
+local internalHide, collapsed, closing = false, false, false
+local collapsedBar
 local MEDIA = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local Skin = {
@@ -205,7 +207,7 @@ local function RefreshCastbarPreview()
     local check=castbarControls.preview
     if not check then return end
     local settings=ns.ConfigSessionGetFrame(selectedType).castbar
-    local available=config:IsShown() and selectedPage=="frames"
+    local available=ns.ConfigSessionIsActive() and selectedPage=="frames"
         and FRAME_SUPPORT.castbarGeometry[selectedType]
         and not InCombatLockdown() and settings and settings.enabled~=false
         and ns.ConfigSessionGetEnabled(selectedType)
@@ -334,7 +336,7 @@ local function ClearAuraPositionPreview()
 end
 
 local function RefreshAuraPositionPreview()
-    local context=config and config:IsShown() and selectedPage=="frames" and not InCombatLockdown()
+    local context=config and ns.ConfigSessionIsActive() and selectedPage=="frames" and not InCombatLockdown()
         and ns.ConfigSessionGetEnabled(selectedType)
     if not context then ClearAuraPositionPreview()
     else ns.RefreshAuraMoverPreview() end
@@ -375,6 +377,9 @@ local function PreviewAuraSliders()
     auraWorking.maxCount=Round(auraCountSlider:GetValue()); auraWorking.spacing=Round(auraSpacingSlider:GetValue())
     auraWorking.xOffset=Round(auraXSlider:GetValue()); auraWorking.yOffset=Round(auraYSlider:GetValue())
     ApplyAuraVisual(selectedType,selectedAura,auraWorking)
+    -- Group previews can own aura anchors on ghosts outside ns.frames.
+    -- Reposition those existing anchors from the staged layout as well.
+    if selectedType=="party" or selectedType=="raid" then ns.RefreshAuraMoverPreview() end
     previewAuraUnitType,previewAuraType=selectedType,selectedAura
 end
 
@@ -757,12 +762,13 @@ local function CreateShell()
     config:SetScript("OnEvent",FitConfigToScreen)
     FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(config,Skin.background)
-    config:SetScript("OnHide",function() ClearStatusIconPreview(); if fontMenu then fontMenu:Hide() end; if textureMenu then textureMenu:Hide() end; RestoreFramePreview(); RestoreAuraPreview() end)
+    config:SetScript("OnHide",function() if not internalHide then ns.CloseConfig() end end)
     local icon=config:CreateTexture(nil,"ARTWORK"); icon:SetSize(96,96); icon:SetPoint("TOPLEFT",18,-10)
     icon:SetTexture("Interface\\AddOns\\"..ADDON_NAME.."\\Media\\Artwork\\MIUF_Icon_128.png")
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetTextColor(unpack(Skin.text)); title:SetPoint("TOPLEFT",120,-16); title:SetText("M Y T H Inc Unit Frames")
     local ver=config:CreateFontString(nil,"OVERLAY"); ver:SetFont(FONT,10,"OUTLINE"); ver:SetTextColor(unpack(Skin.text)); ver:SetPoint("LEFT",title,"RIGHT",10,-1); ver:SetText(ns.version); ver:SetTextColor(unpack(Skin.muted))
-    local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() config:Hide() end)
+    local close=MakeButton(config,"X",28,24); close:SetPoint("TOPRIGHT",-10,-10); close:SetScript("OnClick",function() ns.CloseConfig() end)
+    local collapse=MakeButton(config,"Minimize",86,24); collapse:SetPoint("RIGHT",close,"LEFT",-6,0); collapse:SetScript("OnClick",function() ns.CollapseConfig() end)
     frameTab=MakeButton(config,"Frames",110,28); frameTab:SetPoint("TOPLEFT",180,-48); frameTab:SetScript("OnClick",function() SelectPage("frames") end)
     profileTab=MakeButton(config,"Profiles",110,28); profileTab:SetPoint("LEFT",frameTab,"RIGHT",8,0); profileTab:SetScript("OnClick",function() SelectPage("profiles") end)
     applyChangesButton=MakeButton(config,"Apply Changes",120,28); applyChangesButton:SetPoint("BOTTOMLEFT",16,18); applyChangesButton:SetEnabled(false); applyChangesButton:SetScript("OnClick",ApplyChanges)
@@ -811,7 +817,7 @@ local function CreateStatusIconPreviewControl(panel)
             RefreshStatusIconPreview()
         end)
     end)
-    panel:HookScript("OnHide",ClearStatusIconPreview)
+    panel:HookScript("OnHide",function() if not internalHide then ClearStatusIconPreview() end end)
 end
 
 local function CreateIndicatorControls(parent)
@@ -1147,7 +1153,7 @@ local function CreateTrackedBuffManager()
     local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetTextColor(unpack(Skin.text)); trackedTitle:SetPoint("TOPLEFT",14,-150); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
     local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); auraUI.returnFromPicker=true; config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
-    manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); config:Hide(); trackedBuffWindow:Show() end)
+    manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); internalHide=true; config:Hide(); internalHide=false; trackedBuffWindow:Show() end)
 end
 
 local function CreateAuraActions(parent)
@@ -1256,16 +1262,70 @@ end
 local function CreateConfig()
     if config then return end; CreateShell(); CreateFramesPage(); CreateAurasPage(); CreateProfilesPage()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and IsAurasSelected() and selectedAura=="buffs" then RefreshTrackedWindow() end end)
-    config:HookScript("OnShow",function() ClearStatusIconPreview(); frameUI.category=auraUI.returnFromPicker and "Auras" or "Layout"; auraUI.returnFromPicker=nil; applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty()); ns.RefreshConfig() end); config:Hide()
+    config:HookScript("OnShow",function()
+        if not ns.ConfigSessionBegin() then internalHide=true; config:Hide(); internalHide=false; return end
+        auraUI.returnFromPicker=nil; ns.RefreshConfig()
+    end); internalHide=true; config:Hide(); internalHide=false
 end
 
-function ns.ToggleConfig() CreateConfig(); if config:IsShown() then config:Hide() else config:Show() end end
+function ns.CloseConfig()
+    if closing then return end
+    closing=true
+    ns.StopConfigurationMovers()
+    ClearStatusIconPreview(); ClearCastbarPreview(); ClearAuraPositionPreview()
+    previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
+    if fontMenu then fontMenu:Hide() end
+    if textureMenu then textureMenu:Hide() end
+    internalHide=true
+    config:Hide()
+    if trackedBuffWindow then trackedBuffWindow:Hide() end
+    if collapsedBar then collapsedBar:Hide() end
+    internalHide=false; collapsed=false
+    local restored,err=ns.ConfigSessionClose()
+    if err then print("|cffff5555MIUF: Close restoration will be retried. "..tostring(err).."|r") end
+    ns.UpdateLockMoversButton()
+    closing=false
+end
+
+function ns.RestoreConfig()
+    if not ns.ConfigSessionBegin() then return end
+    collapsed=false
+    if collapsedBar then collapsedBar:Hide() end
+    if trackedBuffWindow then trackedBuffWindow:Hide() end
+    config:Show()
+end
+
+function ns.CollapseConfig()
+    if not collapsedBar then
+        collapsedBar=CreateFrame("Frame","MIUF_CollapsedConfig",UIParent,"BackdropTemplate")
+        collapsedBar:SetSize(300,38); collapsedBar:SetPoint("TOP",UIParent,"TOP",0,-40)
+        collapsedBar:SetFrameStrata("DIALOG"); collapsedBar:SetClampedToScreen(true)
+        collapsedBar:SetMovable(true); collapsedBar:EnableMouse(true); collapsedBar:RegisterForDrag("LeftButton")
+        collapsedBar:SetScript("OnDragStart",collapsedBar.StartMoving)
+        collapsedBar:SetScript("OnDragStop",collapsedBar.StopMovingOrSizing)
+        Skin.Panel(collapsedBar,Skin.background)
+        local restore=MakeButton(collapsedBar,"MIUF Config - Restore",246,24)
+        restore:SetPoint("LEFT",6,0); restore:SetScript("OnClick",ns.RestoreConfig)
+        local close=MakeButton(collapsedBar,"X",28,24)
+        close:SetPoint("RIGHT",-6,0); close:SetScript("OnClick",ns.CloseConfig)
+    end
+    collapsed=true; internalHide=true; config:Hide(); internalHide=false
+    collapsedBar:Show()
+end
+
+function ns.ToggleConfig()
+    CreateConfig()
+    if collapsed then ns.RestoreConfig()
+    elseif config:IsShown() or trackedBuffWindow:IsShown() then ns.CloseConfig()
+    else ns.RestoreConfig() end
+end
 
 -- User frame-lock actions reveal pending work; internal mover refreshes do not.
 function ns.ShowConfigForPendingFrameChanges()
     if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return end
     CreateConfig()
-    if not config:IsShown() then config:Show() end
+    if collapsed then return end
+    if not config:IsShown() then ns.RestoreConfig() end
     ns.RefreshConfig()
 end
 
@@ -1296,7 +1356,10 @@ combatWatcher:SetScript("OnEvent",function(_,event)
     ClearAuraPositionPreview()
     ClearCastbarPreview()
     if event~="PLAYER_ENTERING_WORLD" then
-        if not InCombatLockdown() then RestoreFramePreview(); RestoreAuraPreview() end
+        if not InCombatLockdown() then
+            ns.ConfigSessionFinishClose()
+            RestoreFramePreview(); RestoreAuraPreview()
+        end
         ns.SetAuraMoversLocked(InCombatLockdown() or ns.AreAuraMoversLocked())
         if config and config:IsShown() then ns.RefreshConfig() end
     end

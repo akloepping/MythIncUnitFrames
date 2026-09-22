@@ -734,7 +734,8 @@ end
 
 function ns.ApplyFrameType(unitType)
     if unitType=="raid" and InCombatLockdown() then return end
-    local state=BuildFrameState(unitType); for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
+    local overrides=ns.ConfigSessionIsActive and ns.ConfigSessionIsActive() and ns.ConfigSessionGetFrame(unitType)
+    local state=BuildFrameState(unitType,overrides); for _,frame in pairs(frames) do if frame.MIUF_UnitType==unitType then ApplyFrameState(frame,state) end end
     if not InCombatLockdown() and ns.ApplyGroupLayout then ns.ApplyGroupLayout(unitType) end
 end
 ns.ApplySize=ns.ApplyFrameType

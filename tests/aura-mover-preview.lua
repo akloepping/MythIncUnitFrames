@@ -136,6 +136,42 @@ local cachedCount=created
 ns.ClearAuraMoverPreview(); only(nil)
 ns.PreviewAuraMover("party","buffs",true); only(ghostBuff)
 assert(created==cachedCount, "configuration movers should be reused")
+-- Run the real GUI slider preview path against active Party/Raid ghosts.
+-- ApplyAuraVisual handles real units, so leave it empty to isolate the ghost
+-- refresh that used to be missing after X/Y edits.
+local configFile=assert(io.open("Config.lua","r"))
+local configSource=configFile:read("*a"); configFile:close()
+local sliderSource=assert(configSource:match("(local function PreviewAuraSliders%(%)%s.-)\nlocal function ChooseAvailableAura"))
+local sliderFactory=assert(loadstring([[
+    local ns,selectedType,selectedAura,x,y=...
+    local refreshing=false
+    local auraWorking={}
+    local function Round(v) return v end
+    local function AuraAvailable() return true end
+    local function ApplyAuraVisual() end
+    local function slider(v) return {GetValue=function() return v end} end
+    local auraCountSlider,auraSpacingSlider=slider(4),slider(2)
+    local auraXSlider,auraYSlider=slider(x),slider(y)
+]]..sliderSource..[[
+    return PreviewAuraSliders
+]]))
+for _,kind in ipairs({"party","raid"}) do
+    local aura=kind=="party" and "buffs" or "debuffs"
+    ns.PreviewAuraMover(kind,aura,true)
+    local host=ghosts[kind]
+    local activeMover=host.MIUF_AuraMovers[aura]
+    local activeAnchor=host.MIUF_Auras[aura].anchor
+    local allocations=created
+    for _,offset in ipairs({{71,6},{71,-29},{-43,82}}) do
+        ns.ConfigSessionStageAura(kind,aura,{xOffset=offset[1],yOffset=offset[2]})
+        sliderFactory(ns,kind,aura,offset[1],offset[2])()
+        assert(activeAnchor.x==offset[1] and activeAnchor.y==offset[2],kind.." ghost did not move live")
+        assert(activeMover.shown and host.MIUF_AuraMovers[aura]==activeMover)
+        assert(created==allocations,"slider refresh recreated a preview")
+        assert(saved.xOffset==5 and saved.yOffset==6,"slider refresh saved pending edits")
+    end
+end
+ns.PreviewAuraMover("party","buffs",true)
 solo=false; ns.frames.party1:Show(); ns.RefreshAuraMoverPreview()
 only(ns.frames.party1.MIUF_AuraMovers.buffs)
 ns.ClearAuraMoverPreview(); only(nil)

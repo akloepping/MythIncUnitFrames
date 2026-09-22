@@ -6,6 +6,16 @@ local pendingPositions = {}
 local pendingTrackedBuffs
 local hasPendingChanges = false
 local sessionProfile
+local sessionActive = false
+local closeRestorePending = false
+
+function ns.ConfigSessionIsActive() return sessionActive end
+function ns.ConfigSessionBegin()
+    if closeRestorePending and not InCombatLockdown() then ns.ConfigSessionFinishClose() end
+    if closeRestorePending then return false end
+    sessionActive = true
+    return true
+end
 
 function ns.ConfigSessionClear()
     if ns.ClearEnabledPreviews then ns.ClearEnabledPreviews() end
@@ -306,14 +316,15 @@ end
 -- Stop only the requested scope for the Raid-only control, or all movers for
 -- general Revert. Late mouse releases must not stage discarded coordinates.
 function ns.StopConfigurationMovers(unitType)
-    if InCombatLockdown() then return false end
+    local combat=InCombatLockdown()
     local function StopMover(owner,mover)
         if not mover then return end
-        owner:StopMovingOrSizing(); mover:StopMovingOrSizing()
-        mover:ClearAllPoints(); mover:SetAllPoints(owner)
         mover.MIUF_RevertedDrag=true
         local resize=mover.MIUF_ResizeHandle
         if resize then resize:SetScript("OnUpdate",nil); resize.MIUF_ResizeState=nil end
+        if combat then return end
+        owner:StopMovingOrSizing(); mover:StopMovingOrSizing()
+        mover:ClearAllPoints(); mover:SetAllPoints(owner)
     end
     for _,frame in pairs(ns.frames or {}) do
         if not unitType or frame.MIUF_UnitType==unitType then
@@ -326,11 +337,21 @@ function ns.StopConfigurationMovers(unitType)
     if (not unitType or unitType=="raid") and ns.raidFrameMoverOwner then
         StopMover(ns.raidFrameMoverOwner,ns.raidFrameMoverOwner.MIUF_Mover)
     end
-    return true
+    if ns.GetGroupStatusPreviewFrame then
+        for _,kind in ipairs({"party","raid"}) do
+            local host=ns.GetGroupStatusPreviewFrame(kind)
+            if host and (not unitType or unitType==kind) then
+                for auraType,mover in pairs(host.MIUF_AuraMovers or {}) do
+                    StopMover(host.MIUF_Auras[auraType].anchor,mover)
+                end
+            end
+        end
+    end
+    return not combat
 end
 
-function ns.ConfigSessionRevert()
-    if InCombatLockdown() or not ns.ConfigSessionIsDirty() then return false end
+function ns.ConfigSessionRevert(force)
+    if InCombatLockdown() or (not force and not ns.ConfigSessionIsDirty()) then return false end
     -- Keep the session recoverable if a saved-state restoration fails. No
     -- setters, enabled lifecycle, capacity rebuild or reload belong to Revert.
     local pending={pendingEnabled,pendingAuraLayouts,pendingFrameSettings,pendingGroupLayouts,
@@ -357,6 +378,24 @@ function ns.ConfigSessionRevert()
         return false,ok and "Saved-state restoration did not complete." or result
     end
     return true
+end
+
+-- Close clears the same pending store used by Apply/Revert. Protected visual
+-- restoration waits for combat to end; discarded values never survive it.
+function ns.ConfigSessionFinishClose()
+    if not closeRestorePending or InCombatLockdown() then return false end
+    local restored,err=ns.ConfigSessionRevert(true)
+    if restored then closeRestorePending=false end
+    return restored,err
+end
+
+function ns.ConfigSessionClose()
+    sessionActive=false
+    ns.ConfigSessionClear()
+    ns.SetFrameMoversLockedState(true)
+    ns.SetAuraMoversLockedState(true)
+    closeRestorePending=true
+    return ns.ConfigSessionFinishClose()
 end
 
 function ns.ConfigSessionStagePosition(key, value)

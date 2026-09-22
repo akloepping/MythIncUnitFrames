@@ -143,7 +143,8 @@ function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
         return
     end
 
-    local savedLayout = ns.GetGroupLayout(unitType) or {}
+    local active = ns.ConfigSessionIsActive and ns.ConfigSessionIsActive()
+    local savedLayout = (active and ns.ConfigSessionGetGroup(unitType) or ns.GetGroupLayout(unitType)) or {}
     local layout = {}
     for key, value in pairs(savedLayout) do layout[key] = value end
     if layoutOverride then
@@ -152,6 +153,7 @@ function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
     previewLayouts[unitType] = layout
 
     local savedSize = ns.GetSize(unitType) or { width = 200, height = 40 }
+    sizeOverride = sizeOverride or (active and ns.ConfigSessionGetFrame(unitType).size)
     local liveWidth, liveHeight = GetLiveGroupSize(unitType)
     local width = tonumber(sizeOverride and sizeOverride.width) or tonumber(liveWidth) or tonumber(savedSize.width) or 200
     local height = tonumber(sizeOverride and sizeOverride.height) or tonumber(liveHeight) or tonumber(savedSize.height) or 40
@@ -160,7 +162,7 @@ function ns.PreviewGroupLayout(unitType, layoutOverride, sizeOverride)
     if not list then return end
 
     local positionKey = unitType == "party" and "party1" or "boss1"
-    local position = ns.GetPosition(positionKey)
+    local position = active and ns.ConfigSessionGetPosition(positionKey) or ns.GetPosition(positionKey)
     if not position then
         HideGroupPreview(unitType)
         return
