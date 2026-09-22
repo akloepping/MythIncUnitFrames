@@ -1,4 +1,4 @@
-MythInc Unit Frames 0.10.0-alpha
+MythInc Unit Frames 0.10.0-beta.1
 
 Native unit frames for World of Warcraft Retail, targeting interface 120100
 (12.1). Uses Blizzard's secure frames and aura containers. No oUF is required.
@@ -6,9 +6,10 @@ Native unit frames for World of Warcraft Retail, targeting interface 120100
 Installation
 ------------
 Place MythIncUnitFrames in your Retail Interface\AddOns directory. The folder
-must directly contain MythIncUnitFrames.toc, the Lua files, and Artwork, without
-an extra nested repository folder. Enable MythInc Unit Frames in the AddOns
-list. Settings are stored in MythIncUnitFramesDB.
+must directly contain MythIncUnitFrames.toc, the Lua files, and the Media folder,
+with artwork under Media\Artwork and no extra nested repository folder.
+Enable MythInc Unit Frames in the AddOns list. Settings are stored in
+MythIncUnitFramesDB.
 
 Supported frames
 ----------------
@@ -26,14 +27,25 @@ Indicators, or Auras. Unsupported controls are hidden. The window is draggable
 and scales down to fit the screen. Myth Inc artwork appears in the header and
 addon-list icon.
 
-GUI edits and mover position/size changes are staged. Apply Changes saves them;
-Revert Changes restores saved settings. Closing the window does not apply or
-discard pending edits; they remain in the current session. Frame, aura, and
-Reset All buttons stage resets. Raid also has Revert Raid Changes.
+GUI edits and mover position/size changes are staged. Apply Changes commits
+pending edits. Revert Changes discards pending edits and restores the last
+applied settings while keeping the session open. Minimize collapses the window
+and preserves the session, pending edits, selected context, and active previews;
+Restore returns to that same session. Close (X) discards all unapplied pending
+edits, clears previews, stops and locks movers, restores the last applied state,
+and ends the session. Protected restoration waits until combat ends if needed.
+Frame, aura, and Reset All buttons stage resets. Raid also has Revert Raid Changes.
 
 Unlock Frames enables global frame movers and resize handles.
-Party, Boss, and Raid have group previews for layout work. Aura movers have
-a separate lock state and position aura groups relative to their frames.
+Party, Boss, and Raid have group previews for layout work. In Auras, Preview
+Position toggles a focused mover for the selected aura type; multiple aura-type
+previews can stay active within the same frame type. Switching frame types
+clears these previews. Movers position aura groups relative to their frames.
+Party/Raid use a visible live member when available, or an existing visible
+configuration group preview when no live member is available. These fallback
+movers show placement, not simulated aura icons. Unlock Frames to show group
+previews as needed. Aura movers retain a separate lock state; unlocking it
+alone does not display every aura mover.
 The floating Lock Movers button locks both kinds. Locking does not commit
 edits: use Apply Changes to save. Configure and move frames outside combat.
 
@@ -42,8 +54,8 @@ Appearance and text
 Per-type controls cover width, height, power-bar height, bar texture, health
 and power color presets, and background/border opacity. Optional portraits
 support left/right placement and proportional width; Raid has no portraits.
-Text controls provide built-in fonts, font size, name/health-text visibility,
-and separate X/Y offsets. Health text shows a percentage or available Offline,
+Text controls provide built-in and bundled fonts, font size, name/health-text
+visibility, and separate X/Y offsets. Health text shows a percentage or available Offline,
 Ghost, Dead, or AFK status. Party/Raid members have automatic range fading.
 
 Auras
@@ -83,9 +95,17 @@ saved and clears on leaving that view.
 
 Castbars and click-casting
 -------------------------
-Player, Target, Focus, and Boss have attached castbars for casts, channels,
-and empowered channels, with spell text and interruptibility where available.
-There are no separate castbar configuration or movement controls.
+Player, Target, Focus, and Boss have native attached castbars for casts,
+channels, and empowered channels. Presentation includes spell text and icon,
+remaining-time text, a spark, an interruptibility shield for uninterruptible
+casts, terminal Interrupted/Failed displays, and empowered-stage separators
+where applicable and available from Retail's APIs.
+
+Under Frames > Layout > Cast Bar, Player and Target have enablement, width,
+height, X/Y offsets, and Preview Cast Bar controls. Changes are staged with
+the rest of the configuration. Focus and Boss have enablement only and keep
+their original frame-relative geometry (frame width, 18 high, 3 below the
+frame). All Boss frames share the same castbar enablement setting.
 
 Frames register with ClickCastFrames for compatible addons such as Clique.
 Configure bindings in that addon; MIUF has no built-in binding editor.
@@ -110,12 +130,25 @@ Limitations and reloads
   are unavailable during combat; Blizzard controls restricted aura data.
 - The profile picker displays ten entries. The buff manager displays up to 24
   seen and 24 tracked buffs. These lists currently have no pagination.
-- Blizzard's Player, Pet, Target, Focus, Party, and Boss frames are suppressed
-  independently of MIUF's enable switches. Disabling a MIUF type does not
-  restore its Blizzard counterpart. Blizzard's raid container is suppressed
-  only while MIUF Raid is enabled; the Blizzard raid manager is retained.
-- This is an alpha. Combat, vehicles, group changes, artwork, UI scaling, and
-  raid layouts still warrant testing in game.
+- Blizzard Party and the raid container are reversibly hidden while the
+  corresponding MIUF frame type is enabled in applied settings. Applying a
+  disabled state restores their original parents, leaving visibility to
+  Blizzard's settings and group state. The Blizzard raid manager is retained.
+- The normal Blizzard Player castbar is reversibly hidden only while both
+  MIUF Player and its native castbar are enabled in applied settings. Disabling
+  either restores its original parent. Ownership changes wait until combat
+  ends when necessary; staged previews and Revert do not transfer ownership.
+- Blizzard's Player, Pet, Target, Focus, and Boss unit frames remain suppressed
+  independently of MIUF's enable switches. Disabling those MIUF frame types
+  does not restore their Blizzard unit-frame counterparts.
+- This is the first outside-testing beta. Bugs may occur; combat, vehicles,
+  group changes, artwork, UI scaling, and raid layouts warrant testing in game.
+
+Beta feedback
+-------------
+Include the MIUF version, Retail version, reproduction steps, expected and
+actual behavior, and the complete Lua error when applicable. Screenshots and
+other relevant addons can help explain layout or compatibility issues.
 
 Slash commands
 --------------
@@ -124,7 +157,7 @@ Slash commands
 /miuf version            Print installed addon version
 /miuf unlock             Unlock frame movers
 /miuf lock               Lock frame movers; review pending edits in the GUI
-/miuf auraunlock         Unlock aura movers
+/miuf auraunlock         Unlock aura-mover state; use Preview Position in Auras
 /miuf auralock           Lock aura movers
 /miuf size <type> <w> <h> Immediately save/apply a frame type's size
 /miuf reset              Immediately reset the current profile and seen history
