@@ -463,6 +463,10 @@ local function UpdateFrame(frame, refreshStatus)
     UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateStatusIndicators(frame); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
+local function ApplyFrameFonts(frame,appearance)
+    local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
+end
+
 local function ApplyFrameState(frame,state)
     local appearance=state.appearance; local width,height=state.size.width,state.size.height; frame:SetSize(width,height)
     if ns.ApplyFrameCastbarSettings then ns.ApplyFrameCastbarSettings(frame,state.castbar) end
@@ -486,7 +490,7 @@ local function ApplyFrameState(frame,state)
     frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-healthTextWidth-6,nameY)
     local healthX,healthY=appearance.healthXOffset or -6,appearance.healthYOffset or 0
     frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(healthTextWidth)
-    local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
+    ApplyFrameFonts(frame,appearance)
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     frame.MIUF_ShowRestingIcon=appearance.showRestingIcon~=false
     UpdateHealth(frame); UpdateRestingIndicator(frame)
@@ -672,6 +676,18 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     if (unitType=="party" or unitType=="raid") and unit~="player" then rangeFrames[#rangeFrames+1]=frame end
     return frame
 end
+
+-- On cold login, bundled fonts can still be unavailable at PLAYER_ENTERING_WORLD.
+-- Retry once when the initial loading screen closes, including hidden unit frames.
+local fontStartupEvents=CreateFrame("Frame")
+fontStartupEvents:RegisterEvent("LOADING_SCREEN_DISABLED")
+fontStartupEvents:SetScript("OnEvent",function(self,event)
+    self:UnregisterEvent(event)
+    for _,frame in pairs(frames) do
+        ApplyFrameFonts(frame,ns.GetAppearance(frame.MIUF_UnitType))
+        UpdateFrame(frame)
+    end
+end)
 
 local readyCheckEvents=CreateFrame("Frame")
 readyCheckEvents:RegisterEvent("READY_CHECK")
