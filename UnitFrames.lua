@@ -463,8 +463,63 @@ local function UpdateFrame(frame, refreshStatus)
     UpdateRaidTarget(frame,appearance); UpdateRoleIndicator(frame,appearance); UpdateStatusIndicators(frame); UpdateConnectionState(frame); UpdateRestingIndicator(frame)
 end
 
+local pendingFonts={}
+local FONT_RETRY_LIMIT=120 -- Roughly 30 seconds of the existing 0.25s updater.
+local function RecoverTextFont(text,request)
+    request.attempts=request.attempts+1
+    local success=text:SetFont(request.font,request.size,request.flags)
+    if success then
+        -- A cold-start failure can leave stale rendering state even after font
+        -- assignment succeeds. Change size and restore it in the same callback.
+        text:SetFont(request.font,request.size+1,request.flags)
+        success=text:SetFont(request.font,request.size,request.flags)
+        if not success then
+            -- Never retain the temporary size; use the same built-in fallback
+            -- used at frame creation while bounded recovery remains pending.
+            text:SetFont(FONT,request.size,request.flags)
+        end
+    end
+    if success then
+        text.MIUF_FontRecovery=nil
+        pendingFonts[text]=nil
+    elseif request.attempts>=FONT_RETRY_LIMIT then
+        -- Retain failure history/budget for explicit previews, but stop automatic
+        -- attempts. Repeated configuration applications must not restart polling.
+        pendingFonts[text]=nil
+    else
+        pendingFonts[text]=request
+    end
+end
+
+local function ApplyTextFont(text,font,size)
+    local flags="OUTLINE"
+    local bundled=font:find("Interface\\AddOns\\MythIncUnitFrames\\Media\\Fonts\\",1,true)==1
+    local request=text.MIUF_FontRecovery
+    if bundled and request then
+        -- Preserve the budget while replacing stale saved/preview parameters.
+        request.font,request.size,request.flags=font,size,flags
+        RecoverTextFont(text,request)
+    else
+        local success=text:SetFont(font,size,flags)
+        if bundled and not success then
+            request={font=font,size=size,flags=flags,attempts=0}
+            text.MIUF_FontRecovery=request
+            pendingFonts[text]=request
+        else
+            text.MIUF_FontRecovery=nil
+            pendingFonts[text]=nil
+        end
+    end
+end
+
 local function ApplyFrameFonts(frame,appearance)
-    local font=ns.GetFontPath(appearance.fontFace); frame.NameText:SetFont(font,appearance.fontSize,"OUTLINE"); frame.HealthText:SetFont(font,math.max(9,appearance.fontSize-1),"OUTLINE")
+    local font=ns.GetFontPath(appearance.fontFace)
+    ApplyTextFont(frame.NameText,font,appearance.fontSize)
+    ApplyTextFont(frame.HealthText,font,math.max(9,appearance.fontSize-1))
+end
+
+local function RetryPendingFonts()
+    for text,request in pairs(pendingFonts) do RecoverTextFont(text,request) end
 end
 
 local function ApplyFrameState(frame,state)
@@ -678,15 +733,13 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
 end
 
 -- On cold login, bundled fonts can still be unavailable at PLAYER_ENTERING_WORLD.
--- Retry once when the initial loading screen closes, including hidden unit frames.
+-- Retry failed regions when the initial loading screen closes, including hidden
+-- frames. The existing updater continues if this lifecycle event is still early.
 local fontStartupEvents=CreateFrame("Frame")
 fontStartupEvents:RegisterEvent("LOADING_SCREEN_DISABLED")
 fontStartupEvents:SetScript("OnEvent",function(self,event)
     self:UnregisterEvent(event)
-    for _,frame in pairs(frames) do
-        ApplyFrameFonts(frame,ns.GetAppearance(frame.MIUF_UnitType))
-        UpdateFrame(frame)
-    end
+    RetryPendingFonts()
 end)
 
 local readyCheckEvents=CreateFrame("Frame")
@@ -829,6 +882,7 @@ end
 local rangeWatcher=CreateFrame("Frame"); local rangeElapsed=0
 rangeWatcher:SetScript("OnUpdate",function(_,elapsed)
     rangeElapsed=rangeElapsed+elapsed; if rangeElapsed<0.25 then return end; rangeElapsed=0
+    RetryPendingFonts()
     for index=1,#rangeFrames do
         local frame=rangeFrames[index]
         if frame:IsShown() and UnitExists(frame.MIUF_Unit) then
