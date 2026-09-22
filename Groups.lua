@@ -354,6 +354,7 @@ function ns.GetRaidAnchor()
     if not raidAnchor then
         if InCombatLockdown() then return nil end
         raidAnchor = CreateFrame("Frame", nil, UIParent)
+        raidAnchor:SetDontSavePosition(true) -- Position is persisted by the MIUF profile.
         raidAnchor:SetMovable(true)
         local size = ns.GetSize("raid")
         raidAnchor:SetSize(size.width,size.height)

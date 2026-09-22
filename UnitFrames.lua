@@ -567,9 +567,12 @@ function ns.GetMoverResizeDimensions(state)
 end
 
 local function CreateMover(frame,labelText,positionKey)
+    -- MIUF profiles own these positions, not the client's per-character cache.
+    frame:SetDontSavePosition(true)
     frame:SetMovable(true); frame:SetClampedToScreen(true)
     local mover=CreateFrame("Frame",nil,UIParent,"BackdropTemplate"); mover:SetFrameStrata("DIALOG"); mover:SetAllPoints(frame)
     mover:SetMovable(true); mover:SetClampedToScreen(true)
+    if frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="boss" then mover:SetDontSavePosition(true) end
     mover:SetBackdrop({bgFile=FLAT,edgeFile=FLAT,edgeSize=1}); mover:SetBackdropColor(0.05,0.35,0.8,0.28); mover:SetBackdropBorderColor(0.2,0.65,1,1); mover:EnableMouse(true); mover:RegisterForDrag("LeftButton")
     local label=mover:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetPoint("CENTER"); label:SetText(labelText)
     local dragTarget=frame
