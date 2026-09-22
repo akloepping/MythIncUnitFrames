@@ -501,8 +501,9 @@ end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:SetScript("OnEvent", function(_, event, addon)
+eventFrame:SetScript("OnEvent", function(self, event, addon)
     if event ~= "ADDON_LOADED" or addon ~= ADDON_NAME then return end
+    self:UnregisterEvent("ADDON_LOADED")
     InitializeDatabase()
     if ns.SpawnAllFrames then ns.SpawnAllFrames() end
     print("|cff66ccffMythInc Unit Frames|r " .. ns.version .. " loaded. Profile: " .. ns.GetActiveProfileName())

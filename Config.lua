@@ -1151,7 +1151,7 @@ local function CreateTrackedBuffManager()
     for i=1,24 do local col=(i-1)%12; local row=math.floor((i-1)/12); seenBuffButtons[i]=Choice(14+col*40,-60-row*40); trackedBuffButtons[i]=Choice(14+col*40,-168-row*40) end
     local seenTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); seenTitle:SetFont(FONT,11,"OUTLINE"); seenTitle:SetTextColor(unpack(Skin.text)); seenTitle:SetPoint("TOPLEFT",14,-42); seenTitle:SetText("Seen Buffs - click to track")
     local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetTextColor(unpack(Skin.text)); trackedTitle:SetPoint("TOPLEFT",14,-150); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
-    local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); auraUI.returnFromPicker=true; config:Show() end)
+    local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
     manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); internalHide=true; config:Hide(); internalHide=false; trackedBuffWindow:Show() end)
 end
@@ -1264,7 +1264,7 @@ local function CreateConfig()
     local watcher=CreateFrame("Frame",nil,config); watcher:RegisterEvent("UNIT_AURA"); watcher:SetScript("OnEvent",function() if (config:IsShown() or trackedBuffWindow:IsShown()) and IsAurasSelected() and selectedAura=="buffs" then RefreshTrackedWindow() end end)
     config:HookScript("OnShow",function()
         if not ns.ConfigSessionBegin() then internalHide=true; config:Hide(); internalHide=false; return end
-        auraUI.returnFromPicker=nil; ns.RefreshConfig()
+        ns.RefreshConfig()
     end); internalHide=true; config:Hide(); internalHide=false
 end
 

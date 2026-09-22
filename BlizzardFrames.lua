@@ -150,7 +150,7 @@ local function UpdatePlayerCastbarSuppression()
 end
 
 -- Saved-setting changes are the application boundary, including non-GUI
--- callers. The GUI currently reloads after Apply and profile selection.
+-- callers. Apply normally updates live; profile selection reloads the UI.
 hooksecurefunc(ns, "SetFrameTypeEnabled", UpdateRaidSuppression)
 hooksecurefunc(ns, "SetActiveProfile", UpdateRaidSuppression)
 hooksecurefunc(ns, "ResetAllSettings", UpdateRaidSuppression)

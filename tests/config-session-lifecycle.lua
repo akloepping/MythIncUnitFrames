@@ -123,3 +123,50 @@ assert(ns.ConfigSessionClose())
 assert(ns.ConfigSessionGetAura("party","buffs").xOffset==saved.aura.xOffset)
 assert(ns.ConfigSessionGetAura("raid","debuffs").xOffset==saved.aura.xOffset)
 print("PASS: Collapse/Restore retain session, geometry, context and preview ownership")
+
+-- Exercise the actual group-event handler with a staged Raid anchor. The
+-- geometry sink records which state the handler asks ApplyRaidLayout to use.
+local groupFile=assert(io.open("Groups.lua","r"))
+local groupSource=groupFile:read("*a"); groupFile:close()
+local watcherSource=assert(groupSource:match("(local watcher = CreateFrame%(\"Frame\"%).-)\n%-%- Pure geometry"))
+local watcher={events={}}
+function watcher:RegisterEvent(event) self.events[event]=true end
+function watcher:UnregisterEvent(event) self.events[event]=nil end
+function watcher:SetScript(_,callback) self.callback=callback end
+local layoutCalls,liveSize,livePosition=0
+local eventNS={ConfigSessionIsActive=ns.ConfigSessionIsActive}
+function eventNS.ApplyPartyLayout() end
+function eventNS.AreFrameMoversLocked() return false end
+function eventNS.UpdateGroupPreviews() end
+function eventNS.ApplyRaidLayout(savedState)
+    layoutCalls=layoutCalls+1
+    liveSize=savedState and ns.GetSize("raid") or ns.ConfigSessionGetFrame("raid").size
+    livePosition=savedState and ns.GetPosition("raid") or ns.ConfigSessionGetPosition("raid")
+end
+assert(loadstring("local ns,CreateFrame=...\n"..watcherSource))(eventNS,function() return watcher end)
+assert(ns.ConfigSessionBegin())
+local raidSettings=ns.ConfigSessionGetFrame("raid")
+raidSettings.size={width=444,height=55}
+ns.ConfigSessionStageFrame("raid",raidSettings)
+ns.ConfigSessionStagePosition("raid",{x=81,y=-42})
+for _,event in ipairs({"GROUP_ROSTER_UPDATE","PLAYER_ROLES_ASSIGNED","PLAYER_ENTERING_WORLD"}) do
+    watcher.callback(watcher,event)
+    assert(liveSize.width==444 and livePosition.x==81 and livePosition.y==-42)
+end
+ns.CollapseConfig()
+watcher.callback(watcher,"GROUP_ROSTER_UPDATE")
+assert(liveSize.width==444 and livePosition.x==81)
+local beforeCombat=layoutCalls
+combat=true
+watcher.callback(watcher,"GROUP_ROSTER_UPDATE")
+assert(layoutCalls==beforeCombat and watcher.events.PLAYER_REGEN_ENABLED)
+combat=false
+watcher.callback(watcher,"PLAYER_REGEN_ENABLED")
+assert(liveSize.width==444 and livePosition.x==81)
+assert(not watcher.events.PLAYER_REGEN_ENABLED)
+ns.RestoreConfig()
+assert(ns.ConfigSessionClose())
+watcher.callback(watcher,"GROUP_ROSTER_UPDATE")
+assert(liveSize.width==saved.size.width and livePosition.x==saved.position.x)
+assert(not ns.ConfigSessionIsDirty())
+print("PASS: group events preserve active/collapsed Raid geometry and use saved state after Close")

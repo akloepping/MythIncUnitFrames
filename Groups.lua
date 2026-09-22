@@ -1,7 +1,6 @@
 local ADDON_NAME, ns = ...
 
 local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3, NONE = 4 }
-local layoutPending = false
 local previewLayouts = {}
 local previewFrames = { party = {}, boss = {} }
 local partyUnits = { "party1", "party2", "party3", "party4" }
@@ -296,15 +295,15 @@ watcher:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 watcher:SetScript("OnEvent", function(_, event)
     if InCombatLockdown() then
-        layoutPending = true
         watcher:RegisterEvent("PLAYER_REGEN_ENABLED")
         ns.UpdateGroupPreviews(true)
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then watcher:UnregisterEvent("PLAYER_REGEN_ENABLED") end
-    layoutPending = false
     ns.ApplyPartyLayout()
-    ns.ApplyRaidLayout(true)
+    -- Roster/role events must not replace an active session's staged anchor
+    -- and dimensions, including while its configuration window is collapsed.
+    ns.ApplyRaidLayout(not ns.ConfigSessionIsActive())
     if ns.AreFrameMoversLocked then ns.UpdateGroupPreviews(ns.AreFrameMoversLocked()) end
 end)
 -- Pure geometry: offsets are frame TOPLEFT coordinates relative to the raid anchor.
