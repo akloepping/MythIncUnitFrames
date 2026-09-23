@@ -476,6 +476,8 @@ local function RefreshIndicatorControls()
 end
 
 local function RefreshFrameControls()
+    frameUI.healerPowerBarsOnly:SetShown(selectedType=="party" or selectedType=="raid")
+    frameUI.healerPowerBarsOnly:SetChecked(working.healerPowerBarsOnly==true)
     frameUI.sections.portrait:SetShown(SupportsFrameSection("portrait"))
     nameButton:SetText("Name: "..(working.showName and "On" or "Off"))
     healthTextButton:SetText("Health Text: "..(working.showHealthText and "On" or "Off"))
@@ -843,6 +845,16 @@ local function CreateFrameLayoutControls(parent)
     heightSlider=FrameSlider(size,"Height","Frame Height",24,150,174,234,-54)
     local power=MakeFrameSection(parent,"Power Bar",0,-128,426,100)
     powerSlider=FrameSlider(power,"PowerPercent","Power Bar Height (%)",10,40,360,28,-52)
+    local healerOnly=CreateFrame("CheckButton",nil,power,"UICheckButtonTemplate"); Skin.Check(healerOnly)
+    healerOnly:SetSize(24,24); healerOnly:SetPoint("TOPRIGHT",-170,-3)
+    local healerLabel=healerOnly:CreateFontString(nil,"OVERLAY"); healerLabel:SetFont(FONT,11,"OUTLINE"); healerLabel:SetTextColor(unpack(Skin.text))
+    healerLabel:SetPoint("LEFT",healerOnly,"RIGHT",2,0); healerLabel:SetText("Healer Power Bars Only")
+    frameUI.healerPowerBarsOnly=healerOnly
+    healerOnly:SetScript("OnClick",function(self)
+        if refreshing or (selectedType~="party" and selectedType~="raid") then return end
+        working.healerPowerBarsOnly=self:GetChecked()==true
+        PreviewFrameSliders()
+    end)
     local portrait=MakeFrameSection(parent,"Portrait",442,0,426,180); frameUI.sections.portrait=portrait
     portraitButton=MakeButton(portrait,"Portrait: Off",170,26); portraitButton:SetPoint("TOPLEFT",18,-34)
     portraitButton:SetScript("OnClick",function() working.showPortrait=not working.showPortrait; RefreshFrameControls(); PreviewFrameSliders() end)

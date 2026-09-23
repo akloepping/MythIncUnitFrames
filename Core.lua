@@ -96,6 +96,7 @@ end
 
 for _, unitType in ipairs({ "party", "raid" }) do
     local appearance = defaultAppearance[unitType]
+    appearance.healerPowerBarsOnly = false
     appearance.showLeaderIcon = unitType == "party"
     -- Outside the left edge, clear of the role icon and frame text.
     appearance.leaderIconXOffset = -16

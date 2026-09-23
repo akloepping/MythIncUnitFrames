@@ -127,7 +127,21 @@ local function UpdateHealth(frame, refreshStatus)
     end
 end
 
+local function UpdatePowerVisibility(frame)
+    if frame.MIUF_UnitType ~= "party" and frame.MIUF_UnitType ~= "raid" then return end
+    if not frame.MIUF_PowerDisplayGate then return end
+    -- Use the logical group member's assigned role, including in vehicles.
+    -- The gate preserves the power bar's own shown state.
+    local shown=not frame.MIUF_HealerPowerBarsOnly
+        or (frame.MIUF_Unit and UnitGroupRolesAssigned(frame.MIUF_Unit) == "HEALER") or false
+    frame.MIUF_PowerDisplayGate:SetShown(shown)
+    -- Fill the reserved space without changing the outer frame or backdrop.
+    -- Retain the applied (possibly previewed) height for live role changes.
+    frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,shown and frame.MIUF_PowerHeight or 2)
+end
+
 local function UpdatePower(frame)
+    UpdatePowerVisibility(frame)
     local unit = ns.GetFrameDisplayUnit(frame)
     if not unit then return end
     local value = UnitPowerPercent(unit, nil, false, CurveConstants and CurveConstants.ScaleTo100)
@@ -524,6 +538,7 @@ end
 
 local function ApplyFrameState(frame,state)
     local appearance=state.appearance; local width,height=state.size.width,state.size.height; frame:SetSize(width,height)
+    frame.MIUF_HealerPowerBarsOnly=appearance.healerPowerBarsOnly==true
     if ns.ApplyFrameCastbarSettings then ns.ApplyFrameCastbarSettings(frame,state.castbar) end
     local texture=ns.GetTexturePath(appearance.texture); frame.Health:SetStatusBarTexture(texture); frame.Power:SetStatusBarTexture(texture)
     frame.Background:SetColorTexture(0.03,0.03,0.03,appearance.backgroundOpacity/100); frame.Border:SetBackdropBorderColor(0.1,0.1,0.1,appearance.borderOpacity/100)
@@ -540,6 +555,8 @@ local function ApplyFrameState(frame,state)
     local powerHeight=math.max(8,math.floor(height*(state.powerPercent/100)))
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
+    frame.MIUF_PowerHeight=powerHeight
+    UpdatePowerVisibility(frame)
     local nameX,nameY=appearance.nameXOffset or 6,appearance.nameYOffset or 0
     local healthTextWidth=frame.MIUF_UnitType=="raid" and math.min(42,math.floor(width*0.35)) or 42
     frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-healthTextWidth-6,nameY)
@@ -626,7 +643,12 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     frame:SetScript("OnEnter",function(self) GameTooltip_SetDefaultAnchor(GameTooltip,self); GameTooltip:SetUnit(ns.GetFrameDisplayUnit(self)) end); frame:SetScript("OnLeave",function() GameTooltip:Hide() end)
     frame.Background=CreateBackground(frame); frame.Border=CreateBorder(frame)
     local health=CreateFrame("StatusBar",nil,frame); health:SetMinMaxValues(0,100); health:SetStatusBarTexture(FLAT); local hbg=health:CreateTexture(nil,"BACKGROUND"); hbg:SetAllPoints(health); hbg:SetColorTexture(0.08,0.08,0.08,1); frame.Health=health
-    local power=CreateFrame("StatusBar",nil,frame); power:SetMinMaxValues(0,100); power:SetStatusBarTexture(FLAT); local pbg=power:CreateTexture(nil,"BACKGROUND"); pbg:SetAllPoints(power); pbg:SetColorTexture(0.05,0.05,0.05,1); frame.Power=power
+    local powerParent=frame
+    if unitType=="party" or unitType=="raid" then
+        powerParent=CreateFrame("Frame",nil,frame); powerParent:SetAllPoints(frame); powerParent:SetFrameLevel(frame:GetFrameLevel())
+        frame.MIUF_PowerDisplayGate=powerParent
+    end
+    local power=CreateFrame("StatusBar",nil,powerParent); power:SetMinMaxValues(0,100); power:SetStatusBarTexture(FLAT); local pbg=power:CreateTexture(nil,"BACKGROUND"); pbg:SetAllPoints(power); pbg:SetColorTexture(0.05,0.05,0.05,1); frame.Power=power
     local nameText=health:CreateFontString(nil,"OVERLAY"); nameText:SetFont(FONT,12,"OUTLINE"); nameText:SetJustifyH("LEFT"); nameText:SetWordWrap(false); frame.NameText=nameText
     local healthText=health:CreateFontString(nil,"OVERLAY"); healthText:SetFont(FONT,11,"OUTLINE"); healthText:SetJustifyH("RIGHT"); frame.HealthText=healthText
     if unitType~="raid" then local portrait=frame:CreateTexture(nil,"ARTWORK"); portrait:SetTexCoord(0.08,0.92,0.08,0.92); frame.Portrait=portrait end
@@ -703,7 +725,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         elseif event=="INCOMING_SUMMON_CHANGED" then UpdateIncomingSummonIndicator(self)
         elseif event=="INCOMING_RESURRECT_CHANGED" then UpdateIncomingResurrectionIndicator(self)
         elseif event=="GROUP_ROSTER_UPDATE" and (self.MIUF_UnitType=="party" or self.MIUF_UnitType=="raid") then UpdateFrame(self)
-        elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdateLeaderIndicator(self); UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
+        elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdatePowerVisibility(self); UpdateLeaderIndicator(self); UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_CONNECTION" then UpdateFrame(self)
         elseif event=="UNIT_FACTION" then ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_TARGET" and self.MIUF_Unit=="targettarget" then UpdateFrame(self)
