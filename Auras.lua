@@ -375,16 +375,36 @@ local function CreateAuraContainer(frame, auraType)
     ApplyContainerLayout(frame, auraType)
 end
 
--- Reproduce MIUF's original dispel treatment: a thin white outline surrounding a
--- thicker inner edge colored by the aura's dispel type. AuraButton owns all color
--- assignment, so the addon never reads the protected dispel type itself.
+-- Highlight the full unit frame with the aura's dispel-type color.
+-- AuraButton owns all color assignment, so the addon never reads the
+-- protected dispel type itself.
 local function CreateDispelHighlight(frame)
-    if not frame or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType] or frame.MIUF_DispelHighlight then return end
+    if not frame
+        or not DISPEL_HIGHLIGHT_TYPES[frame.MIUF_UnitType]
+        or frame.MIUF_DispelHighlight
+    then
+        return
+    end
+
     local displayGate = CreateFrame("Frame", nil, frame)
-    displayGate:SetAllPoints(frame); displayGate:SetShown(IsAuraUnitAvailable(frame))
-    local ok, container = pcall(CreateFrame, "AuraContainer", nil, displayGate, "CustomAuraContainerTemplate")
-    if not ok or not container then print("|cffff5555MIUF: unable to create dispel highlight.|r"); return end
-    container:SetAllPoints(frame); container:SetFrameLevel(frame:GetFrameLevel() + 4)
+    displayGate:SetAllPoints(frame)
+    displayGate:SetShown(IsAuraUnitAvailable(frame))
+
+    local ok, container = pcall(
+        CreateFrame,
+        "AuraContainer",
+        nil,
+        displayGate,
+        "CustomAuraContainerTemplate"
+    )
+
+    if not ok or not container then
+        print("|cffff5555MIUF: unable to create dispel highlight.|r")
+        return
+    end
+
+    container:SetAllPoints(frame)
+    container:SetFrameLevel(frame:GetFrameLevel() + 4)
 
     local slotOptions = {
         initializeFrame = function(button)
@@ -392,44 +412,66 @@ local function CreateDispelHighlight(frame)
             button:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
             button:SetMouseMotionEnabled(false)
 
-            local preserve = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset or 3
-            local fixedOutlineMap = {
-                Magic = CreateColor(1, 1, 1), Curse = CreateColor(1, 1, 1), Disease = CreateColor(1, 1, 1),
-                Poison = CreateColor(1, 1, 1), Bleed = CreateColor(1, 1, 1), Enrage = CreateColor(1, 1, 1), None = CreateColor(1, 1, 1),
-            }
-            local function AddEdge(point1, relPoint1, x1, y1, point2, relPoint2, x2, y2, subLayer, colorMap)
-                local edge = button:CreateTexture(nil, "OVERLAY", nil, subLayer)
-                edge:SetColorTexture(1, 1, 1, 1)
-                edge:SetPoint(point1, frame, relPoint1, x1, y1)
-                edge:SetPoint(point2, frame, relPoint2, x2, y2)
-                button:AddDispelTypeTexture(edge, {
-                    style = preserve,
-                    showWhenHarmful = true,
-                    customDispelColorMap = colorMap,
-                })
-                return edge
-            end
+            local preserve =
+                Enum
+                and Enum.CustomAuraButtonDispelTypeTextureStyle
+                and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset
+                or 3
 
-            local t, o = 5, 1
-            local outline = {
-                top = AddEdge("BOTTOMLEFT", "TOPLEFT", -o, 0, "TOPRIGHT", "TOPRIGHT", o, o, 6, fixedOutlineMap),
-                bottom = AddEdge("TOPLEFT", "BOTTOMLEFT", -o, 0, "BOTTOMRIGHT", "BOTTOMRIGHT", o, -o, 6, fixedOutlineMap),
-                left = AddEdge("TOPRIGHT", "TOPLEFT", 0, o, "BOTTOMLEFT", "BOTTOMLEFT", -o, -o, 6, fixedOutlineMap),
-                right = AddEdge("TOPLEFT", "TOPRIGHT", 0, o, "BOTTOMRIGHT", "BOTTOMRIGHT", o, -o, 6, fixedOutlineMap),
-            }
+            local highlightLayer = CreateFrame("Frame", nil, button)
+            highlightLayer:SetAllPoints(frame)
+            highlightLayer:SetAlpha(0.25)
+
+            local highlight = highlightLayer:CreateTexture(nil, "OVERLAY")
+            highlight:SetColorTexture(1, 1, 1, 1)
+            highlight:SetAllPoints(highlightLayer)
+
+            button:AddDispelTypeTexture(highlight, {
+                style = preserve,
+                showWhenHarmful = true,
+            })
+
             button.DispelHighlight = {
-                outline = outline,
-                top = AddEdge("TOPLEFT", "TOPLEFT", 0, 0, "BOTTOMRIGHT", "TOPRIGHT", 0, -t, 7),
-                bottom = AddEdge("BOTTOMLEFT", "BOTTOMLEFT", 0, 0, "TOPRIGHT", "BOTTOMRIGHT", 0, t, 7),
-                left = AddEdge("TOPLEFT", "TOPLEFT", 0, -t, "BOTTOMRIGHT", "BOTTOMLEFT", t, t, 7),
-                right = AddEdge("TOPLEFT", "TOPRIGHT", -t, -t, "BOTTOMRIGHT", "BOTTOMRIGHT", 0, t, 7),
+                full = highlight,
+                layer = highlightLayer,
             }
         end,
     }
-    local added, slotOrError = pcall(container.AddAuraSlot, container, "miufDispel", "HARMFUL|RAID", slotOptions)
-    if not added then print("|cffff5555MIUF: dispel highlight failed: " .. tostring(slotOrError) .. "|r"); container:Hide(); return end
-    local unitSet, unitError = pcall(container.SetUnit, container, ns.GetFrameDisplayUnit(frame))
-    if not unitSet then print("|cffff5555MIUF: dispel highlight unit assignment failed: " .. tostring(unitError) .. "|r"); container:Hide(); return end
+
+    local added, slotOrError = pcall(
+        container.AddAuraSlot,
+        container,
+        "miufDispel",
+        "HARMFUL|RAID",
+        slotOptions
+    )
+
+    if not added then
+        print(
+            "|cffff5555MIUF: dispel highlight failed: "
+                .. tostring(slotOrError)
+                .. "|r"
+        )
+        container:Hide()
+        return
+    end
+
+    local unitSet, unitError = pcall(
+        container.SetUnit,
+        container,
+        ns.GetFrameDisplayUnit(frame)
+    )
+
+    if not unitSet then
+        print(
+            "|cffff5555MIUF: dispel highlight unit assignment failed: "
+                .. tostring(unitError)
+                .. "|r"
+        )
+        container:Hide()
+        return
+    end
+
     frame.MIUF_DispelHighlight = container
     frame.MIUF_DispelDisplayGate = displayGate
 end
