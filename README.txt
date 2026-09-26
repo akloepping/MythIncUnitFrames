@@ -1,4 +1,4 @@
-MythInc Unit Frames 0.10.0-beta.2
+MythInc Unit Frames 0.10.0-beta.3
 
 Native unit frames for World of Warcraft Retail, targeting interface 120100
 (12.1). Uses Blizzard's secure frames and aura containers. No oUF is required.

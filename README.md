@@ -2,7 +2,7 @@
 
 MythInc Unit Frames (MIUF) is a configurable native unit-frame addon for **World of Warcraft Retail**. No oUF is required.
 
-**Current version: 0.10.0-beta.2** — an outside-testing beta. This is active beta testing, and you may encounter bugs.
+**Current version: 0.10.0-beta.3** — an outside-testing beta. This is active beta testing, and you may encounter bugs.
 
 ## Frames and features
 
