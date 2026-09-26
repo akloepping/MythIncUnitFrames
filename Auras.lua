@@ -431,9 +431,17 @@ local function CreateDispelHighlight(frame)
                 showWhenHarmful = true,
             })
 
+            -- Share the aura button's visibility without inheriting the tint's alpha.
+            local border = CreateFrame("Frame", nil, button, "BackdropTemplate")
+            border:SetPoint("TOPLEFT", frame, "TOPLEFT", -2, 2)
+            border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
+            border:SetBackdrop({ edgeFile = FLAT, edgeSize = 2 })
+            border:SetBackdropBorderColor(1, 1, 0, 1)
+
             button.DispelHighlight = {
                 full = highlight,
                 layer = highlightLayer,
+                border = border,
             }
         end,
     }
