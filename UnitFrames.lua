@@ -434,12 +434,14 @@ end
 
 local function UpdateRoleIndicator(frame, appearance)
     local icon=frame.GroupRoleIndicator; if not icon then return end
+    if frame.MIUF_UnitType~="party" and frame.MIUF_UnitType~="raid" then icon:Hide(); return end
     appearance=appearance or ns.GetAppearance(frame.MIUF_UnitType) or {}
-    if not appearance.showRoleIcon then icon:Hide(); return end
-    local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local atlas
+    local role=UnitGroupRolesAssigned(ns.GetFrameDisplayUnit(frame)); local texture
     if not canaccessvalue(role) then icon:Hide(); return end
-    if role=="TANK" then atlas="groupfinder-icon-role-large-tank" elseif role=="HEALER" then atlas="groupfinder-icon-role-large-heal" elseif role=="DAMAGER" then atlas="groupfinder-icon-role-large-dps" end
-    if atlas then icon:SetAtlas(atlas); icon:Show() else icon:Hide() end
+    if role=="TANK" and appearance.showTankRoleIcon then texture="MIUF_Role_Tank"
+    elseif role=="HEALER" and appearance.showHealerRoleIcon then texture="MIUF_Role_Healer"
+    elseif role=="DAMAGER" and appearance.showDamageRoleIcon then texture="MIUF_Role_Damage" end
+    if texture then icon:SetTexture("Interface\\AddOns\\"..ADDON_NAME.."\\Media\\Artwork\\"..texture..".tga"); icon:Show() else icon:Hide() end
 end
 
 local function UpdateLeaderIndicator(frame)
@@ -670,7 +672,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         local summon=health:CreateTexture(nil,"OVERLAY"); summon:Hide(); frame.IncomingSummonIndicator=summon
         local resurrection=health:CreateTexture(nil,"OVERLAY"); resurrection:SetAtlas(RESURRECTION_ATLAS,false); resurrection:Hide(); frame.IncomingResurrectionIndicator=resurrection
     end
-    if unitType=="player" or unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
+    if unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
     if unitType=="player" then
         -- Mainline PlayerFrame.xml uses this atlas and a 7x6, 42-frame loop.
         local resting=health:CreateTexture(nil,"OVERLAY"); resting:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook"); resting:Hide()

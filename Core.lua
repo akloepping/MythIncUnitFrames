@@ -65,7 +65,6 @@ for unitType in pairs(defaultSizes) do
         showPortrait = false,
         portraitSide = "LEFT",
         portraitPercent = 22,
-        showRoleIcon = unitType == "raid",
         roleIconXOffset = 3,
         roleIconYOffset = -3,
         roleIconSize = 14,
@@ -97,6 +96,9 @@ end
 for _, unitType in ipairs({ "party", "raid" }) do
     local appearance = defaultAppearance[unitType]
     appearance.healerPowerBarsOnly = false
+    appearance.showTankRoleIcon = unitType == "raid"
+    appearance.showHealerRoleIcon = unitType == "raid"
+    appearance.showDamageRoleIcon = unitType == "raid"
     appearance.showLeaderIcon = unitType == "party"
     -- Outside the left edge, clear of the role icon and frame text.
     appearance.leaderIconXOffset = -16
@@ -149,6 +151,18 @@ local function NormalizeProfile(profile)
     profile.positions = FillMissing(profile.positions, defaultPositions)
     profile.sizes = FillMissing(profile.sizes, defaultSizes)
     profile.barLayout = FillMissing(profile.barLayout, defaultBarLayout)
+    -- Convert role visibility before defaults fill the new per-role keys.
+    if type(profile.appearance) ~= "table" then profile.appearance = {} end
+    for _, unitType in ipairs({ "party", "raid" }) do
+        local appearance = profile.appearance[unitType]
+        if type(appearance) ~= "table" then appearance = {}; profile.appearance[unitType] = appearance end
+        local legacy = appearance.showRoleIcon
+        if unitType == "party" and type(profile.partyRoleIconsEnabled) == "boolean" then legacy = profile.partyRoleIconsEnabled end
+        for _, key in ipairs({ "showTankRoleIcon", "showHealerRoleIcon", "showDamageRoleIcon" }) do
+            if appearance[key] == nil and type(legacy) == "boolean" then appearance[key] = legacy end
+        end
+    end
+    profile.partyRoleIconsEnabled = nil
     profile.appearance = FillMissing(profile.appearance, defaultAppearance)
     -- Temporary statuses are automatic; retire the short-lived opt-out keys.
     for unitType in pairs(defaultAppearance) do
@@ -176,13 +190,9 @@ local function NormalizeProfile(profile)
     if type(profile.auraLocked) ~= "boolean" then profile.auraLocked = legacyLocked end
     profile.locked = nil
 
-    if type(profile.partyRoleIconsEnabled) == "boolean" then
-        profile.appearance.party.showRoleIcon = profile.partyRoleIconsEnabled
-        profile.partyRoleIconsEnabled = nil
-    end
-
     for _, appearance in pairs(profile.appearance) do
         if type(appearance) == "table" then
+            appearance.showRoleIcon = nil
             appearance.nameVAlign = nil
             appearance.healthVAlign = nil
         end

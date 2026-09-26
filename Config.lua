@@ -76,7 +76,7 @@ local FRAME_SUPPORT = {
     castbarGeometry={player=true,target=true},
     portrait={player=true,target=true,focus=true,pet=true,targettarget=true,party=true,boss=true},
     group={party=true,boss=true,raid=true},
-    role={player=true,party=true,raid=true},
+    role={party=true,raid=true},
     leader={party=true,raid=true},
     resting={player=true},
     status={player=true,target=true,focus=true,targettarget=true,party=true,raid=true},
@@ -456,7 +456,7 @@ end
 
 local function RefreshIndicatorControls()
     local items={
-        {frameUI.sections.role,SupportsFrameSection("role"),working.showRoleIcon},
+        {frameUI.sections.role,SupportsFrameSection("role"),working.showTankRoleIcon or working.showHealerRoleIcon or working.showDamageRoleIcon},
         {frameUI.sections.marker,true,working.showRaidMarker~=false},
         {restingControls.Panel,SupportsFrameSection("resting"),working.showRestingIcon~=false},
         {frameUI.sections.status,SupportsFrameSection("status"),true},
@@ -471,6 +471,7 @@ local function RefreshIndicatorControls()
             index=index+1
         end
         if panel.Toggle then panel.Toggle:SetText(enabled and "On" or "Off") end
+        for key,check in pairs(panel.RoleChecks or {}) do check:SetChecked(working[key]==true) end
         for _,slider in ipairs(panel.Sliders) do SetControlEnabled(slider,enabled) end
     end
 end
@@ -786,11 +787,11 @@ local function CreateIndicatorSection(parent,title,prefix,offsetLimit,toggleKey)
     if toggleKey then
         panel.Toggle=MakeButton(panel,"On",90,26); panel.Toggle:SetPoint("TOPLEFT",18,-34)
         panel.Toggle:SetScript("OnClick",function()
-            if toggleKey=="showRoleIcon" or toggleKey=="showLeaderIcon" then working[toggleKey]=not working[toggleKey]
+            if toggleKey=="showLeaderIcon" then working[toggleKey]=not working[toggleKey]
             else working[toggleKey]=working[toggleKey]==false end
             RefreshFrameControls(); PreviewFrameSliders()
         end)
-    else
+    elseif prefix=="StatusIcon" then
         local note=panel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text))
         note:SetPoint("TOPLEFT",18,-40); note:SetText("Ready Check • Summon • Incoming Resurrection")
     end
@@ -824,7 +825,21 @@ end
 
 local function CreateIndicatorControls(parent)
     frameUI.sections.leader=CreateIndicatorSection(parent,"Leader Icon","LeaderIcon",150,"showLeaderIcon")
-    local role=CreateIndicatorSection(parent,"Role Icon","RoleIcon",100,"showRoleIcon")
+    local role=CreateIndicatorSection(parent,"Role Icon","RoleIcon",100)
+    role.RoleChecks={}
+    for index,entry in ipairs({{"Tank","showTankRoleIcon"},{"Healer","showHealerRoleIcon"},{"Damage","showDamageRoleIcon"}}) do
+        local key=entry[2]
+        local check=CreateFrame("CheckButton",nil,role,"UICheckButtonTemplate"); Skin.Check(check)
+        check:SetSize(24,24); check:SetPoint("TOPLEFT",18+(index-1)*140,-34)
+        local label=check:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetTextColor(unpack(Skin.text))
+        label:SetPoint("LEFT",check,"RIGHT",2,0); label:SetText(entry[1])
+        role.RoleChecks[key]=check
+        check:SetScript("OnClick",function(self)
+            if refreshing or not SupportsFrameSection("role") then return end
+            working[key]=self:GetChecked()==true
+            RefreshFrameControls(); PreviewFrameSliders()
+        end)
+    end
     frameUI.sections.role=role
     roleXSlider,roleYSlider,roleSizeSlider=role.X,role.Y,role.Size
     local marker=CreateIndicatorSection(parent,"Raid Marker","RaidMarker",150,"showRaidMarker")
