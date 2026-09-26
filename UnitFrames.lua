@@ -138,6 +138,14 @@ local function UpdatePowerVisibility(frame)
     -- Fill the reserved space without changing the outer frame or backdrop.
     -- Retain the applied (possibly previewed) height for live role changes.
     frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,shown and frame.MIUF_PowerHeight or 2)
+    local text=frame.MIUF_PowerTextLayout
+    if text then
+        -- Expansion lowers the health bar's center; keep text at its normal height.
+        local offset=shown and 0 or (frame.MIUF_PowerHeight-2)/2
+        frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",text.nameX,text.nameY+offset)
+        frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",text.nameRightX,text.nameY+offset)
+        frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",text.healthX,text.healthY+offset)
+    end
 end
 
 local function UpdatePower(frame)
@@ -556,12 +564,15 @@ local function ApplyFrameState(frame,state)
     frame.Health:ClearAllPoints(); frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",leftInset,-2); frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-rightInset,-2); frame.Health:SetPoint("BOTTOM",frame,"BOTTOM",0,powerHeight)
     frame.Power:ClearAllPoints(); frame.Power:SetPoint("TOPLEFT",frame.Health,"BOTTOMLEFT",0,-1); frame.Power:SetPoint("TOPRIGHT",frame.Health,"BOTTOMRIGHT",0,-1); frame.Power:SetPoint("BOTTOM",frame,"BOTTOM",0,2)
     frame.MIUF_PowerHeight=powerHeight
-    UpdatePowerVisibility(frame)
     local nameX,nameY=appearance.nameXOffset or 6,appearance.nameYOffset or 0
     local healthTextWidth=frame.MIUF_UnitType=="raid" and math.min(42,math.floor(width*0.35)) or 42
     frame.NameText:ClearAllPoints(); frame.NameText:SetPoint("LEFT",frame.Health,"LEFT",nameX,nameY); frame.NameText:SetPoint("RIGHT",frame.Health,"RIGHT",nameX-healthTextWidth-6,nameY)
     local healthX,healthY=appearance.healthXOffset or -6,appearance.healthYOffset or 0
     frame.HealthText:ClearAllPoints(); frame.HealthText:SetPoint("RIGHT",frame.Health,"RIGHT",healthX,healthY); frame.HealthText:SetWidth(healthTextWidth)
+    if frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="raid" then
+        frame.MIUF_PowerTextLayout={nameX=nameX,nameRightX=nameX-healthTextWidth-6,nameY=nameY,healthX=healthX,healthY=healthY}
+    end
+    UpdatePowerVisibility(frame)
     ApplyFrameFonts(frame,appearance)
     frame.NameText:SetShown(appearance.showName); frame.HealthText:SetShown(appearance.showHealthText)
     frame.MIUF_ShowRestingIcon=appearance.showRestingIcon~=false

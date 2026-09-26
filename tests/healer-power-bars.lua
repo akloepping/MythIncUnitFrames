@@ -39,6 +39,8 @@ local function addVisuals(frame)
     frame.Health:SetPoint("TOPLEFT",frame,"TOPLEFT",2,-2)
     frame.Health:SetPoint("TOPRIGHT",frame,"TOPRIGHT",-2,-2)
     frame.MIUF_PowerHeight=10
+    frame.NameText=visual(); frame.HealthText=visual()
+    frame.MIUF_PowerTextLayout={nameX=7,nameRightX=-41,nameY=3,healthX=-8,healthY=-2}
     return frame
 end
 local function assertVisuals(frame,shown)
@@ -50,6 +52,18 @@ local function assertVisuals(frame,shown)
     assert(healthBottom[1]==frame and healthBottom[2]=="BOTTOM" and healthBottom[3]==0)
     assert(healthBottom[4]==(shown and frame.MIUF_PowerHeight or 2))
     assert(frame.Health.points.TOPLEFT[4]==-2 and frame.Health.points.TOPRIGHT[4]==-2)
+    -- Absolute text heights must stay fixed as the health bar's center moves.
+    local height=60
+    local center=(-2+(-height+healthBottom[4]))/2
+    local normalCenter=(-2+(-height+frame.MIUF_PowerHeight))/2
+    local layout=frame.MIUF_PowerTextLayout
+    for _,entry in ipairs({{frame.NameText,"LEFT",layout.nameX,layout.nameY},
+        {frame.NameText,"RIGHT",layout.nameRightX,layout.nameY},
+        {frame.HealthText,"RIGHT",layout.healthX,layout.healthY}}) do
+        local point=entry[1].points[entry[2]]
+        assert(point[1]==frame.Health and point[2]==entry[2] and point[3]==entry[3])
+        assert(center+point[4]==normalCenter+entry[4],"text shifted when power visibility changed")
+    end
 end
 for _,kind in ipairs({"party","raid"}) do
     assert(ns.GetAppearance(kind).healerPowerBarsOnly==false)
